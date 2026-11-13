@@ -96,7 +96,10 @@ import UIKit
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
         player.pause()
-        player.replaceCurrentItem(with: nil)
+        // iOS 16 的已知系统 bug：AVPlayer 被 PiP / Now-Playing 等系统组件观察后，
+        // replaceCurrentItem(with: nil) 会触发 AVFoundation 的 KVO 断言崩溃（SIGTRAP，
+        // "Cannot remove an observer for the key path currentItem..."). 引擎/协调器即将销毁时，
+        // player 释放会自动释放 currentItem，这里只暂停即可，避免系统断言导致返回闪退。
     }
 
     var currentTime: Double { player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0 }

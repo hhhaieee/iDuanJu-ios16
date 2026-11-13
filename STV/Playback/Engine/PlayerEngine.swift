@@ -18,13 +18,7 @@ enum PlayerEngineSettings {
             #if DEBUG
             if let e = ProcessInfo.processInfo.environment["STV_ENGINE"], let k = PlayerEngineKind(rawValue: e) { return k }
             #endif
-            // iOS 16 上 AetherEngine 6.89.1 停止播放（按返回）时，软件/原生解码线程是异步关闭的，
-            // 存在「渲染线程仍在向已释放的渲染层写帧」的竞态，导致返回闪退。
-            // 系统播放器（AVPlayer）在 iOS 16 上稳定，且完整支持短剧的 MP4/HLS 片源，因此 iOS 16 强制走 AVPlayer。
-            if #available(iOS 17.0, *) {
-                return UserDefaults.standard.string(forKey: key).flatMap(PlayerEngineKind.init(rawValue:)) ?? .aether
-            }
-            return .avplayer
+            return UserDefaults.standard.string(forKey: key).flatMap(PlayerEngineKind.init(rawValue:)) ?? .aether
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
     }
