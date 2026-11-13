@@ -166,14 +166,20 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
 
     func start() {
         guard observer == nil else { return }
-        let player = av.player
-        let session = MPNowPlayingSession(players: [player])
-        session.automaticallyPublishesNowPlayingInfo = true
-        nowPlaying = session
-        let commands = session.remoteCommandCenter
-        commands.playCommand.addTarget(self, action: #selector(remotePlay))
-        commands.pauseCommand.addTarget(self, action: #selector(remotePause))
-        commands.togglePlayPauseCommand.addTarget(self, action: #selector(remoteToggle))
+        // iOS 16 的 MPNowPlayingSession 存在系统级 KVO bug：它会观察 AVPlayer 的 rate。
+        // teardown 里先释放 session、再暂停播放器（setRate:0）时，AVFoundation 会访问已释放的
+        // 观察者 → object_getClass 崩溃（EXC_BREAKPOINT / SIGTRAP，崩溃日志见 setRate: 帧）。
+        // iOS 16 改用 MPNowPlayingInfoCenter + MPRemoteCommandCenter（registerSharedCommands 已注册远程命令）。
+        if #available(iOS 17.0, *) {
+            let player = av.player
+            let session = MPNowPlayingSession(players: [player])
+            session.automaticallyPublishesNowPlayingInfo = true
+            nowPlaying = session
+            let commands = session.remoteCommandCenter
+            commands.playCommand.addTarget(self, action: #selector(remotePlay))
+            commands.pauseCommand.addTarget(self, action: #selector(remotePause))
+            commands.togglePlayPauseCommand.addTarget(self, action: #selector(remoteToggle))
+        }
         #if DEBUG
         // UI tests: an interruption that never ends (STV_FAKE_INTERRUPT=<seconds after start>).
         if let s = ProcessInfo.processInfo.environment["STV_FAKE_INTERRUPT"].flatMap(Double.init) {
@@ -224,7 +230,10 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     }
 
     private func publishNowPlaying() {
-        guard engineKind == .aether, let i = readyIndex, episodes.indices.contains(i) else { return }
+        guard let i = readyIndex, episodes.indices.contains(i) else { return }
+        // aether 始终手动发布；avplayer 在 iOS 16（无 MPNowPlayingSession）也手动发布，
+        // 避免 iOS 16 上锁屏信息缺失。iOS 17+ 的 avplayer 由 MPNowPlayingSession 自动发布。
+        guard engineKind == .aether || nowPlaying == nil else { return }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: detail?.title ?? series.title,
             MPMediaItemPropertyAlbumTitle: series.source.isLongVideo ? series.source.label : "第\(episodes[i].ep)集",
@@ -316,10 +325,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         pip?.delegate = nil
         pip = nil
         pipPossible = false
-        // iOS 16 上 AVPictureInPictureController(playerLayer:) 存在系统级 KVO bug：释放控制器时
-        // AVFoundation 会断言「Cannot remove an observer for the key path currentItem...」并 SIGTRAP，
-        // 表现为「播放一会儿再按返回就闪退」。iOS 16 不创建画中画控制器（iOS 17+ 才启用画中画）。
-        guard #available(iOS 17.0, *), id != nil, AVPictureInPictureController.isPictureInPictureSupported(),
+        guard id != nil, AVPictureInPictureController.isPictureInPictureSupported(),
               let controller = engine.makePiPController() else { return }
         controller.delegate = self
         controller.canStartPictureInPictureAutomaticallyFromInline = true
