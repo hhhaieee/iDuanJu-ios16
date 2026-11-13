@@ -62,6 +62,7 @@ actor CoverStore {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
         c.urlCache = URLCache(memoryCapacity: 32 * 1024 * 1024, diskCapacity: 128 * 1024 * 1024)
+        ProxySettings.shared.apply(to: c)
         return URLSession(configuration: c)
     }()
 

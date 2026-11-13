@@ -122,6 +122,7 @@ actor SiteHTTP {
         c.httpShouldSetCookies = true
         c.httpCookieAcceptPolicy = .always
         if let protocolClasses { c.protocolClasses = protocolClasses + (c.protocolClasses ?? []) }
+        ProxySettings.shared.apply(to: c)
         session = URLSession(configuration: c)
     }
     private var preferred: [DramaSource: String] = [:]

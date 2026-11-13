@@ -38,6 +38,7 @@ final class LocalHLSProxy: @unchecked Sendable {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
         c.httpCookieStorage = .shared
+        ProxySettings.shared.apply(to: c)
         return URLSession(configuration: c)
     }()
 

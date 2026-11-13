@@ -180,6 +180,7 @@ final class PluginNet: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         c.timeoutIntervalForResource = 60
         c.httpMaximumConnectionsPerHost = 4
         if let extra = Self.testProtocolClasses { c.protocolClasses = extra + (c.protocolClasses ?? []) }
+        ProxySettings.shared.apply(to: c)
         session = URLSession(configuration: c, delegate: self, delegateQueue: nil)
     }
 

@@ -246,6 +246,14 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         }
     }
 
+    /// 立即停止当前播放引擎的核心（暂停 + 停止解码/渲染），但**不触碰任何 @Published 状态**。
+    /// 播放器视图被移除（返回 / 切季）时在 `onDisappear` 里同步调用：若等 surface 已被移出视图
+    /// 层级后才 stop，软件解码路径仍会向已释放的渲染层写帧，导致 iOS 16 上返回闪退。
+    /// 状态清理仍由 `teardown()` 延后到下一帧执行，避免在视图销毁过程中改写 @Published 触发重渲染。
+    func haltPlayback() {
+        engine.stop()
+    }
+
     func teardown() {
         activation = UUID()
         save(force: true)

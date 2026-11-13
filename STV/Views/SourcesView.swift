@@ -4,6 +4,7 @@ import SwiftUI
 /// hidden behind Face ID (`SourceGate`).
 struct SourcesView: View {
     @ObservedObject private var gate = SourceGate.shared
+    @ObservedObject private var proxy = ProxySettings.shared
     @State private var message: String?
     @State private var bufferMB = BufferSettings.megabytes
     @State private var cacheBytes: Int64 = 0
@@ -65,6 +66,33 @@ struct SourcesView: View {
                             PrefetchStore.shared.clearAll()
                             cacheBytes = PrefetchStore.shared.totalBytes()
                             message = "已清空预缓冲缓存"
+                        }
+                    }
+                    group("网络代理") {
+                        Toggle(isOn: $proxy.enabled) {
+                            label("启用代理", "network", sub: "网页抓取、封面、接口请求与本地视频转发都走该代理；改动后需重启 App 生效")
+                        }.padding(14).accessibilityIdentifier("proxy.enabled")
+                        if proxy.enabled {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Picker("代理类型", selection: $proxy.kind) {
+                                    ForEach(ProxySettings.Kind.allCases) { Text($0.rawValue).tag($0) }
+                                }
+                                .pickerStyle(.segmented)
+                                .accessibilityIdentifier("proxy.kind")
+                                HStack(spacing: 10) {
+                                    Text("服务器").font(.subheadline).foregroundStyle(STVTheme.secondary).frame(width: 52, alignment: .leading)
+                                    TextField("127.0.0.1", text: $proxy.host)
+                                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                        .keyboardType(.URL).foregroundStyle(STVTheme.text)
+                                        .accessibilityIdentifier("proxy.host")
+                                }
+                                HStack(spacing: 10) {
+                                    Text("端口").font(.subheadline).foregroundStyle(STVTheme.secondary).frame(width: 52, alignment: .leading)
+                                    TextField("7890", text: $proxy.port)
+                                        .keyboardType(.numberPad).foregroundStyle(STVTheme.text)
+                                        .accessibilityIdentifier("proxy.port")
+                                }
+                            }.padding(14)
                         }
                     }
                     group("隐私") {

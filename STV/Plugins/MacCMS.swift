@@ -100,6 +100,7 @@ struct MacCMSProvider: SiteProvider {
         c.httpCookieStorage = nil
         c.urlCache = nil
         c.timeoutIntervalForRequest = 15
+        ProxySettings.shared.apply(to: c)
         return URLSession(configuration: c)
     }()
 

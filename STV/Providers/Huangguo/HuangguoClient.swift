@@ -55,6 +55,7 @@ actor HuangguoClient {
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
+        ProxySettings.shared.apply(to: c)
         return URLSession(configuration: c)
     }()
     private var aiBase: String?

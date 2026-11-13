@@ -25,6 +25,7 @@ actor HongguoClient {
         cfg.timeoutIntervalForRequest = 20
         cfg.httpCookieStorage = nil
         cfg.httpShouldSetCookies = false
+        ProxySettings.shared.apply(to: cfg)
         session = URLSession(configuration: cfg)
         let pcfg = URLSessionConfiguration.ephemeral
         pcfg.timeoutIntervalForRequest = 20

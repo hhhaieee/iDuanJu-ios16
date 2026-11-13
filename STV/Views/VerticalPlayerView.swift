@@ -237,8 +237,10 @@ struct PlayerScreen: View {
         .onDisappear {
             adjuster.restoreBrightness()
             OrientationGate.lockPortrait()
-            // iOS 16 上在视图销毁过程中同步改写 @Published 状态可能触发闪退，把清理延后到下一帧执行。
             let coordinator = co
+            // 1) 同步：先停掉引擎渲染，确保 surface 被移出视图层级前已停止向渲染层写帧（避免返回闪退）。
+            coordinator.haltPlayback()
+            // 2) 延后：清理观察者 / 改 @Published 状态，避免在视图销毁过程中触发重渲染。
             DispatchQueue.main.async { coordinator.teardown() }
         }
         .onChange(of: co.current) { _ in scrubbing = false; flashChrome() }

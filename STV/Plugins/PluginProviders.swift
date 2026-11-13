@@ -71,6 +71,7 @@ enum PluginMedia {
         c.httpShouldSetCookies = false
         c.urlCache = nil
         c.timeoutIntervalForRequest = 20
+        ProxySettings.shared.apply(to: c)
         return URLSession(configuration: c)
     }()
 
