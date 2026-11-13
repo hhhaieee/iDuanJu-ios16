@@ -30,12 +30,18 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
     func resourceLoader(_ loader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource req: AVAssetResourceLoadingRequest) -> Bool {
         guard let url = req.request.url, let scheme = url.scheme else { return false }
         if scheme == Self.keyScheme {
-            guard let key = Bytes.fromHex(keyHex), key.count == 16 else { req.finishLoading(with: URLError(.userAuthenticationRequired)); return true }
-            req.contentInformationRequest?.contentType = "public.data"
-            req.contentInformationRequest?.contentLength = 16
-            req.contentInformationRequest?.isByteRangeAccessSupported = false
-            req.dataRequest?.respond(with: Data(key))
-            req.finishLoading()
+            guard let key = Bytes.fromHex(keyHex), key.count == 16 else {
+                if !req.isCancelled && !req.isFinished { req.finishLoading(with: URLError(.userAuthenticationRequired)) }
+                return true
+            }
+            // 请求可能在回调执行前已被取消（返回/切换视频），此时 finish 会触发 AVFoundation 异常崩溃。
+            if !req.isCancelled && !req.isFinished {
+                req.contentInformationRequest?.contentType = "public.data"
+                req.contentInformationRequest?.contentLength = 16
+                req.contentInformationRequest?.isByteRangeAccessSupported = false
+                req.dataRequest?.respond(with: Data(key))
+                req.finishLoading()
+            }
             return true
         }
         guard scheme.hasPrefix(Self.plScheme), var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
@@ -44,6 +50,9 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
         var r = URLRequest(url: real)
         for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
         session.dataTask(with: r) { [weak self] data, resp, err in
+            // 返回/切季时 AVPlayer 会取消所有 pending 的 resource 请求，回调晚到时
+            // 再 finish 会抛 NSException（SIGABRT）。先做取消/完成防御检查。
+            guard !req.isCancelled && !req.isFinished else { return }
             guard let self, let data, err == nil, (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
                 req.finishLoading(with: err ?? URLError(.badServerResponse)); return
             }
