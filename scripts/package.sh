@@ -11,8 +11,8 @@ mkdir -p "$OUT"
 xcodegen generate >/dev/null
 common=(-project STV.xcodeproj -scheme STV -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="")
 
-xcodebuild "${common[@]}" -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath DerivedDataRelease build > /tmp/stv-package-ios.log
-xcodebuild "${common[@]}" -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedDataRelease build > /tmp/stv-package-sim.log
+xcodebuild "${common[@]}" -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath DerivedDataRelease build 2>&1 | tee /tmp/stv-package-ios.log
+xcodebuild "${common[@]}" -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedDataRelease build 2>&1 | tee /tmp/stv-package-sim.log
 
 STAGE=$(mktemp -d)
 mkdir -p "$STAGE/Payload"
