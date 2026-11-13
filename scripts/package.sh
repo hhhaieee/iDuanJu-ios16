@@ -5,9 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-$PWD/dist}"
+mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
 VER=$(awk -F'"' '/MARKETING_VERSION/{print $2; exit}' project.yml)
 BUILD=$(awk -F'"' '/CURRENT_PROJECT_VERSION/{print $2; exit}' project.yml)
-mkdir -p "$OUT"
 xcodegen generate >/dev/null
 common=(-project STV.xcodeproj -scheme STV -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="")
 
