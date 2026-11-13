@@ -257,8 +257,6 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     func teardown() {
         activation = UUID()
         save(force: true)
-        pip?.delegate = nil
-        pipObservation = nil
         statusObservation = nil
         itemObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
@@ -275,9 +273,12 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         }
         nowPlaying = nil
+        // 画中画清理顺序：先停止 → 断 delegate → 失效 KVO → 释放（顺序不可乱）。
         if pip?.isPictureInPictureActive == true {
             pip?.stopPictureInPicture()
         }
+        pip?.delegate = nil
+        pipObservation = nil
         pip = nil
         pipIdentity = nil
         pipActive = false
@@ -315,7 +316,10 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         pip?.delegate = nil
         pip = nil
         pipPossible = false
-        guard id != nil, AVPictureInPictureController.isPictureInPictureSupported(),
+        // iOS 16 上 AVPictureInPictureController(playerLayer:) 存在系统级 KVO bug：释放控制器时
+        // AVFoundation 会断言「Cannot remove an observer for the key path currentItem...」并 SIGTRAP，
+        // 表现为「播放一会儿再按返回就闪退」。iOS 16 不创建画中画控制器（iOS 17+ 才启用画中画）。
+        guard #available(iOS 17.0, *), id != nil, AVPictureInPictureController.isPictureInPictureSupported(),
               let controller = engine.makePiPController() else { return }
         controller.delegate = self
         controller.canStartPictureInPictureAutomaticallyFromInline = true

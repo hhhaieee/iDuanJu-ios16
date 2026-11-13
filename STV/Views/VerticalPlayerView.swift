@@ -436,9 +436,11 @@ struct PlayerScreen: View {
             HStack(spacing: 12) {
                 PlayerIconButton(symbol: "chevron.left", label: "返回") { dismiss() }
                 Spacer()
-                PlayerIconButton(symbol: "pip.enter", label: "画中画") { co.togglePiP() }
-                    .disabled(!co.pipPossible).opacity(co.pipPossible ? 1 : 0.55)
-                    .accessibilityIdentifier("player.pip")
+                if #available(iOS 17.0, *) {
+                    PlayerIconButton(symbol: "pip.enter", label: "画中画") { co.togglePiP() }
+                        .disabled(!co.pipPossible).opacity(co.pipPossible ? 1 : 0.55)
+                        .accessibilityIdentifier("player.pip")
+                }
                 PlayerIconButton(symbol: library.isFavorite(series) ? "heart.fill" : "heart",
                                  label: library.isFavorite(series) ? "取消收藏" : "收藏") {
                     library.toggleFavorite(series); flashChrome()
