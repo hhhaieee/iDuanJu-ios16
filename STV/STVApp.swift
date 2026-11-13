@@ -4,6 +4,7 @@ import SwiftUI
 struct STVApp: App {
     @UIApplicationDelegateAdaptor(OrientationGate.self) private var orientation
     init() {
+        CrashReporter.install()
         CFSolver.install()
         // Load plugin / 采集站 indexes before anything reads `Sites.all` or `SourceGate`.
         MainActor.assumeIsolated { _ = CMSStore.shared; _ = PluginStore.shared }
