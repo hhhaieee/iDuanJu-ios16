@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "com.idj.bundled.komikindo",
+  "name": "Komikindo",
+  "version": "1.0.0",
+  "author": { "name": "i短剧" },
+  "description": "Komikindo（印尼语）成人漫画 / 同人 / 韩漫。图片需要 Referer，插件已处理。",
+  "type": "comic",
+  "adult": true,
+  "language": ["id"],
+  "minAppVersion": "1.5",
+  "entry": "main.js",
+  "permissions": {
+    "http": ["komikindo.click"],
+    "media": ["komikindo.click", "linksaya.com", "*.linksaya.com", "i0.wp.com", "i1.wp.com", "i2.wp.com", "i3.wp.com"],
+    "cloudflare": true,
+    "storage": false,
+    "login": false
+  },
+  "capabilities": ["home", "category", "search", "detail", "pages"],
+  "settings": []
+}

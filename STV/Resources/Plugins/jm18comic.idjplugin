@@ -1,0 +1,79 @@
+{
+ "manifest": {
+  "schema": 1,
+  "id": "com.idj.bundled.jm18comic",
+  "name": "18comic 禁漫",
+  "version": "1.0.0",
+  "author": {
+   "name": "i短剧"
+  },
+  "description": "18comic（禁漫天堂）中文成人漫画。自动轮换镜像（发布页 jmcomicgo.org），Cloudflare 在本插件独立的隐藏网页里验证，图片分段由 App 原生还原。",
+  "type": "comic",
+  "adult": true,
+  "language": [
+   "zh"
+  ],
+  "minAppVersion": "1.5",
+  "entry": "main.js",
+  "permissions": {
+   "http": [
+    "18comic.ink",
+    "18comic.vip",
+    "jmcomic-zzz.one",
+    "jmcomic-zzz.org",
+    "comic18j-nini.com",
+    "comic18j-nico.site",
+    "comic18j-ada.work",
+    "jmcomicgo.org",
+    "jmcomictt.site"
+   ],
+   "media": [
+    "*.18comic.ink",
+    "*.18comic.vip",
+    "*.jmcomic-zzz.one",
+    "*.jmcomic-zzz.org",
+    "*.comic18j-nini.com",
+    "*.comic18j-nico.site",
+    "*.comic18j-ada.work",
+    "18comic.ink",
+    "18comic.vip"
+   ],
+   "cloudflare": true,
+   "storage": true,
+   "login": false
+  },
+  "capabilities": [
+   "home",
+   "category",
+   "search",
+   "detail",
+   "pages"
+  ],
+  "settings": [
+   {
+    "key": "mirror",
+    "name": "镜像",
+    "type": "select",
+    "default": "自动",
+    "options": [
+     "自动",
+     "18comic.ink",
+     "18comic.vip",
+     "jmcomic-zzz.one",
+     "jmcomic-zzz.org",
+     "comic18j-nini.com",
+     "comic18j-nico.site",
+     "comic18j-ada.work"
+    ]
+   }
+  ],
+  "integrity": {
+   "files": {
+    "main.js": "sha256-oMtF8frbiJRnzx663pPNbo1DVTbj1oYjHcB3SmzADrQ="
+   }
+  }
+ },
+ "files": {
+  "main.js": "// 18comic（禁漫天堂）· i短剧 idj1 漫画插件\n// - 镜像：设置里可选；「自动」时依次尝试上次可用的镜像 → 内置镜像 → 发布页（jmcomicgo.org）上列出的、且已在白名单内的域名。\n// - Cloudflare：插件声明了 cloudflare 权限，宿主在本插件独立的隐藏 WebView 里过验证，cookie 只进本插件。\n// - 图片分段打乱：按公开的 JM 算法算出分段数，交给宿主原生还原（transform: stripes）。\nconst MIRRORS = ['18comic.ink', '18comic.vip', 'jmcomic-zzz.one', 'jmcomic-zzz.org', 'comic18j-nini.com', 'comic18j-nico.site', 'comic18j-ada.work'];\nconst PUBLISH = 'https://jmcomicgo.org/';\nconst SCRAMBLE_DEFAULT = 220980;\n\nfunction setting() { const m = (host.settings.mirror || '').trim(); return m && m !== '自动' ? m : ''; }\nfunction candidates() {\n  const fixed = setting();\n  if (fixed) return [fixed];\n  const last = host.storage.get('mirror');\n  const list = (host.storage.get('discovered') || []).concat(MIRRORS);\n  return (last ? [last] : []).concat(list.filter(d => d !== last)).filter((d, i, a) => a.indexOf(d) === i);\n}\nfunction looksOK(res) {\n  return res.status >= 200 && res.status < 300 && isSite(res.body) && !/<title>\\s*Just a moment|_cf_chl_opt/.test(res.body);\n}\nfunction isSite(body) { return /禁漫|18comic|jmcomic/i.test(String(body || '')); \n}\n\nasync function discover() {\n  try {\n    const res = await host.http.request({ url: PUBLISH, timeout: 10000, cloudflare: 'off' });\n    const found = [];\n    for (const m of String(res.body).matchAll(/\\b((?:[a-z0-9-]+\\.)+[a-z]{2,})\\b/gi)) {\n      const d = m[1].toLowerCase();\n      if (/googletagmanager|gmail|discord|t\\.me|jm-uu|jm365|jmcomicgo|jmcomictt/.test(d) || found.includes(d)) continue;\n      if (host.http.allowed('https://' + d + '/')) found.push(d);\n      else host.log('发布页上的新域名不在白名单，需要在插件详情里手动添加：' + d);\n    }\n    if (found.length) host.storage.set('discovered', found);\n    return found;\n  } catch (e) { host.log('发布页读取失败', e.message); return []; }\n}\n\n/** GET path on a working mirror; returns { res, base }. */\nasync function fetchPage(path) {\n  let lastErr = null;\n  const tried = {};\n  const attempt = async (list) => {\n    for (const d of list) {\n      if (tried[d]) continue;\n      tried[d] = 1;\n      const base = 'https://' + d;\n      try {\n        const res = await host.http.request({ url: base + path, headers: { Referer: base + '/' }, timeout: 15000 });\n        if (res.status === 404 && isSite(res.body)) throw host.error('E_NOT_FOUND', '页面不存在：' + path);\n        if (looksOK(res)) { if (!setting()) host.storage.set('mirror', d); return { res, base }; }\n        lastErr = host.error('E_HTTP', d + ' 返回 HTTP ' + res.status);\n      } catch (e) {\n        if (e.code === 'E_NOT_FOUND') throw e;\n        lastErr = e;\n        host.log(d + ' 不可用：' + (e.code || '') + ' ' + e.message);\n      }\n    }\n    return null;\n  };\n  const r = (await attempt(candidates())) || (setting() ? null : await attempt(await discover()));\n  if (r) return r;\n  throw lastErr || host.error('E_HTTP', '所有镜像都不可用');\n}\nasync function getDoc(path) { const { res, base } = await fetchPage(path); return { doc: host.html.parse(res.body, res.url), body: res.body, base }; }\n\nfunction abs(base, u) {\n  if (!u) return '';\n  u = String(u).trim();\n  if (u.startsWith('//')) return 'https:' + u;\n  if (u.startsWith('/')) return base + u;\n  return u.replace(/^http:\\/\\//, 'https://');\n}\nfunction clean(t) { return String(t || '').replace(/\\s+/g, ' ').trim(); }\n\nfunction parseCards(doc, base) {\n  const items = [], seen = {};\n  for (const col of doc.select('div.list-col')) {\n    const a = col.selectFirst('a[href^=\"/album/\"]');\n    if (!a) continue;\n    const m = a.attr('href').match(/^\\/album\\/(\\d+)/);\n    if (!m || seen[m[1]]) continue;\n    seen[m[1]] = 1;\n    const img = a.selectFirst('img');\n    const titleEl = col.selectFirst('.video-title');\n    const cat = col.selectFirst('.label-category');\n    items.push({\n      id: m[1],\n      title: clean((img && (img.attr('title') || img.attr('alt'))) || (titleEl ? titleEl.text() : '')),\n      cover: img ? abs(base, img.attr('data-original') || img.attr('src')) : '',\n      remarks: cat ? clean(cat.text()) : '',\n      tags: col.select('.tags a.tag, a.tag').map(t => clean(t.text())).filter(Boolean).slice(0, 20)\n    });\n  }\n  return items.filter(i => i.title);\n}\nfunction hasNext(doc, page) {\n  return doc.select('a.prevnext').some(a => a.attr('href').includes('page=' + (page + 1)));\n}\n\nconst CATEGORIES = [\n  ['mr', '最新'], ['mv', '最多观看'], ['tf', '最多爱心'],\n  ['c:doujin', '同人'], ['c:single', '单本'], ['c:short', '短篇'], ['c:hanman', '韩漫'], ['c:meiman', '美漫'], ['c:another', '其他']\n].map(([id, name]) => ({ id, name, isRank: id === 'mv' || id === 'tf' }));\n\n/** 公开 JM 算法（JMComic-Crawler-Python, MIT）：分段数 */\nfunction segments(scrambleId, aid, filename) {\n  if (aid < scrambleId) return 0;\n  if (aid < 268850) return 10;\n  const x = aid < 421926 ? 10 : 8;\n  const h = host.crypto.md5(String(aid) + filename, { out: 'hex' });\n  return (h.charCodeAt(h.length - 1) % x) * 2 + 2;\n}\n\nexport default {\n  async home() {\n    const { doc, base } = await getDoc('/albums?o=mr&page=1');\n    return { categories: CATEGORIES, items: parseCards(doc, base), hasMore: hasNext(doc, 1) };\n  },\n\n  async category({ id, page = 1 }) {\n    const path = id.startsWith('c:') ? '/albums/' + id.slice(2) + '?o=mr&page=' + page : '/albums?o=' + encodeURIComponent(id) + '&page=' + page;\n    const { doc, base } = await getDoc(path);\n    const items = parseCards(doc, base);\n    return { items, hasMore: items.length > 0 && hasNext(doc, page) };\n  },\n\n  async search({ keyword, page = 1 }) {\n    const { doc, base } = await getDoc('/search/photos?search_query=' + encodeURIComponent(keyword) + '&page=' + page);\n    const items = parseCards(doc, base);\n    return { items, hasMore: items.length > 0 && hasNext(doc, page) };\n  },\n\n  async detail({ id }) {\n    if (!/^\\d+$/.test(String(id))) throw host.error('E_NOT_FOUND', '无效的本子 id');\n    const { doc, base } = await getDoc('/album/' + id + '/');\n    const h1 = doc.selectFirst('h1#book-name') || doc.selectFirst('h1');\n    const img = doc.selectFirst('#album_photo_cover img');\n    let desc = '';\n    for (const h of doc.select('h2.p-t-5')) { const t = clean(h.text()); if (t.startsWith('敘述') || t.startsWith('叙述')) { desc = t.replace(/^敘述：|^叙述：/, ''); break; } }\n    const chapters = [], seen = {};\n    for (const a of doc.select('.episode a[data-album]')) {\n      const pid = a.attr('data-album');\n      if (!/^\\d+$/.test(pid) || seen[pid]) continue;\n      seen[pid] = 1;\n      const h3 = a.selectFirst('h3');\n      chapters.push({ id: pid, name: clean(h3 ? h3.text() : a.text()).replace(/\\s.*$/, '') || ('第' + (chapters.length + 1) + '話'), idx: Number(a.attr('data-index') || chapters.length) });\n    }\n    chapters.sort((x, y) => x.idx - y.idx);\n    const tags = [...new Set(doc.select('span[data-type=\"tags\"] a').map(a => clean(a.text())).filter(Boolean))];\n    const authors = [...new Set(doc.select('span[data-type=\"author\"] a').map(a => clean(a.text())).filter(Boolean))];\n    return {\n      title: h1 ? clean(h1.text()) : id,\n      cover: img ? abs(base, img.attr('data-original') || img.attr('src')) : '',\n      desc,\n      author: authors.join(' / '),\n      tags,\n      status: '',\n      chapters: chapters.length ? chapters.map(c => ({ id: c.id, name: c.name })) : [{ id: String(id), name: '第1話' }]\n    };\n  },\n\n  async pages({ chapterId }) {\n    if (!/^\\d+$/.test(String(chapterId))) throw host.error('E_NOT_FOUND', '无效的章节 id');\n    const { doc, body, base } = await getDoc('/photo/' + chapterId + '/');\n    const sm = body.match(/var\\s+scramble_id\\s*=\\s*(\\d+)/);\n    const am = body.match(/var\\s+aid\\s*=\\s*(\\d+)/);\n    const scrambleId = sm ? Number(sm[1]) : SCRAMBLE_DEFAULT;\n    const aid = am ? Number(am[1]) : Number(chapterId);\n    const seen = {};\n    const urls = doc.select('img[data-original*=\"/media/photos/\"]').map(i => abs(base, i.attr('data-original')))\n      .filter(u => /^https:\\/\\//.test(u) && !seen[u] && (seen[u] = 1));\n    if (!urls.length) throw host.error('E_PARSE', '章节里没有找到图片（可能需要登录或镜像异常）');\n    return {\n      headers: { Referer: base + '/' },\n      images: urls.map(url => {\n        const file = (url.split('?')[0].split('/').pop() || '');\n        const name = file.replace(/\\.[^.]+$/, '');\n        if (/\\.gif$/i.test(file)) return { url };\n        const n = segments(scrambleId, aid, name);\n        return n > 1 ? { url, transform: { type: 'stripes', segments: n } } : { url };\n      })\n    };\n  }\n};\n"
+ }
+}

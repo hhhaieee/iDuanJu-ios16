@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "com.idj.bundled.jm18comic",
+  "name": "18comic 禁漫",
+  "version": "1.0.0",
+  "author": { "name": "i短剧" },
+  "description": "18comic（禁漫天堂）中文成人漫画。自动轮换镜像（发布页 jmcomicgo.org），Cloudflare 在本插件独立的隐藏网页里验证，图片分段由 App 原生还原。",
+  "type": "comic",
+  "adult": true,
+  "language": ["zh"],
+  "minAppVersion": "1.5",
+  "entry": "main.js",
+  "permissions": {
+    "http": ["18comic.ink", "18comic.vip", "jmcomic-zzz.one", "jmcomic-zzz.org", "comic18j-nini.com", "comic18j-nico.site", "comic18j-ada.work", "jmcomicgo.org", "jmcomictt.site"],
+    "media": ["*.18comic.ink", "*.18comic.vip", "*.jmcomic-zzz.one", "*.jmcomic-zzz.org", "*.comic18j-nini.com", "*.comic18j-nico.site", "*.comic18j-ada.work", "18comic.ink", "18comic.vip"],
+    "cloudflare": true,
+    "storage": true,
+    "login": false
+  },
+  "capabilities": ["home", "category", "search", "detail", "pages"],
+  "settings": [
+    { "key": "mirror", "name": "镜像", "type": "select", "default": "自动",
+      "options": ["自动", "18comic.ink", "18comic.vip", "jmcomic-zzz.one", "jmcomic-zzz.org", "comic18j-nini.com", "comic18j-nico.site", "comic18j-ada.work"] }
+  ]
+}

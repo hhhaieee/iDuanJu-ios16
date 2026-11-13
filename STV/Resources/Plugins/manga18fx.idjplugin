@@ -1,0 +1,47 @@
+{
+ "manifest": {
+  "schema": 1,
+  "id": "com.idj.bundled.manga18fx",
+  "name": "Manga18fx",
+  "version": "1.0.0",
+  "author": {
+   "name": "i短剧"
+  },
+  "description": "Manga18fx 英文成人韩漫（Manhwa）。不需要登录。",
+  "type": "comic",
+  "adult": true,
+  "language": [
+   "en"
+  ],
+  "minAppVersion": "1.5",
+  "entry": "main.js",
+  "permissions": {
+   "http": [
+    "manga18fx.com"
+   ],
+   "media": [
+    "manga18fx.com",
+    "*.manga18fx.com"
+   ],
+   "cloudflare": true,
+   "storage": false,
+   "login": false
+  },
+  "capabilities": [
+   "home",
+   "category",
+   "search",
+   "detail",
+   "pages"
+  ],
+  "settings": [],
+  "integrity": {
+   "files": {
+    "main.js": "sha256-ahVcUJOKjeEjgnhiS+C5PccQclBAlPQIRTTwaBpNx68="
+   }
+  }
+ },
+ "files": {
+  "main.js": "// Manga18fx · i短剧 idj1 漫画插件（单文件，只用 host.* 能力）\nconst SITE = 'https://manga18fx.com';\n\nfunction abs(u) {\n  if (!u) return '';\n  u = String(u).trim();\n  if (u.startsWith('//')) return 'https:' + u;\n  if (u.startsWith('/')) return SITE + u;\n  return u.replace(/^http:\\/\\//, 'https://');\n}\nfunction slugOf(href) { const m = String(href || '').match(/\\/manga\\/([^/?#]+)/); return m ? m[1] : ''; }\n\nasync function getDoc(path) {\n  const res = await host.http.request({ url: abs(path), headers: { Referer: SITE + '/' }, timeout: 15000 });\n  if (res.status === 404) throw host.error('E_NOT_FOUND', '页面不存在：' + path);\n  if (res.status < 200 || res.status >= 300) throw host.error('E_HTTP', 'HTTP ' + res.status + '：' + path);\n  return host.html.parse(res.body, res.url);\n}\n\nfunction parseCards(doc) {\n  const items = [], seen = {};\n  for (const card of doc.select('.bsx-item')) {\n    const a = card.selectFirst('.bigor-manga h3 a') || card.selectFirst('a[href*=\"/manga/\"]');\n    const id = a ? slugOf(a.attr('href')) : '';\n    if (!id || seen[id]) continue;\n    seen[id] = 1;\n    const img = card.selectFirst('img');\n    const latest = card.selectFirst('.list-chapter a, .chapter-item a, .chapter a');\n    items.push({\n      id,\n      title: (a.attr('title') || a.text()).trim(),\n      cover: img ? abs(img.attr('data-src') || img.attr('src')) : '',\n      remarks: latest ? latest.text().trim() : ''\n    });\n  }\n  return items;\n}\nfunction hasNext(doc, page) { return doc.select('a[href$=\"/' + (page + 1) + '\"]').length > 0; }\n\nconst CATEGORIES = [\n  ['latest', '最新更新'], ['manhwa', 'Manhwa'], ['uncensored-manhwa', 'Uncensored'], ['romance', 'Romance'], ['drama', 'Drama'],\n  ['comedy', 'Comedy'], ['harem', 'Harem'], ['fantasy', 'Fantasy'], ['isekai', 'Isekai'], ['mature', 'Mature'], ['seinen', 'Seinen'],\n  ['action', 'Action'], ['mystery', 'Mystery'], ['psychological', 'Psychological'], ['supernatural', 'Supernatural'], ['manhua', 'Manhua']\n].map(([id, name]) => ({ id, name }));\n\nexport default {\n  async home() {\n    const doc = await getDoc('/');\n    return { categories: CATEGORIES, items: parseCards(doc), hasMore: true };\n  },\n\n  async category({ id, page = 1 }) {\n    const path = id === 'latest' ? (page > 1 ? '/page/' + page : '/') : '/manga-genre/' + id + (page > 1 ? '/' + page : '');\n    const doc = await getDoc(path);\n    const items = parseCards(doc);\n    return { items, hasMore: items.length > 0 && hasNext(doc, page) };\n  },\n\n  async search({ keyword, page = 1 }) {\n    if (page > 1) return { items: [], hasMore: false };\n    const doc = await getDoc('/search?q=' + encodeURIComponent(keyword));\n    return { items: parseCards(doc), hasMore: false };\n  },\n\n  async detail({ id }) {\n    const doc = await getDoc('/manga/' + id);\n    const h1 = doc.selectFirst('.post-title h1') || doc.selectFirst('h1');\n    const img = doc.selectFirst('.summary_image img');\n    const desc = doc.selectFirst('.dsct');\n    const chapters = [], seen = {};\n    for (const a of doc.select('ul.row-content-chapter li a.chapter-name')) {\n      const m = a.attr('href').match(/\\/manga\\/[^/]+\\/([^/?#]+)/);\n      if (m && !seen[m[1]]) { seen[m[1]] = 1; chapters.push({ id: id + '/' + m[1], name: a.text().trim() }); }\n    }\n    chapters.reverse(); // 站点新→旧，统一成旧→新\n    let status = '';\n    for (const it of doc.select('.post-status .summary-content, .post-content_item')) {\n      const t = it.text().toLowerCase();\n      if (t.includes('completed')) status = 'completed'; else if (t.includes('ongoing')) status = 'ongoing';\n    }\n    const author = doc.selectFirst('.author-content a');\n    return {\n      title: h1 ? h1.text().trim() : id,\n      cover: img ? abs(img.attr('data-src') || img.attr('src')) : '',\n      desc: desc ? desc.text().trim() : '',\n      author: author ? author.text().trim() : '',\n      tags: doc.select('.genres-content a').map(a => a.text().trim()).filter(Boolean),\n      status,\n      chapters\n    };\n  },\n\n  async pages({ chapterId }) {\n    const doc = await getDoc('/manga/' + chapterId);\n    const urls = doc.select('.read-content img')\n      .map(img => abs(img.attr('data-src') || img.attr('src')))\n      .filter(u => /^https:\\/\\/img\\d*\\.manga18fx\\.com\\//.test(u));\n    if (!urls.length) throw host.error('E_PARSE', '章节里没有找到图片：' + chapterId);\n    return { images: urls.map(url => ({ url })), headers: { Referer: SITE + '/' } };\n  }\n};\n"
+ }
+}

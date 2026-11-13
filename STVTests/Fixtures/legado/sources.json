@@ -1,0 +1,33 @@
+[
+ {
+  "bookSourceUrl": "https://book.test",
+  "bookSourceName": "测试书站",
+  "bookSourceGroup": "测试",
+  "bookSourceType": 0,
+  "searchUrl": "/search?q={{key}}",
+  "ruleSearch": {
+   "bookList": "class.result-list@class.item",
+   "name": "class.title@text",
+   "author": "class.author@text",
+   "bookUrl": "class.title@href",
+   "intro": "@css:p.intro@text",
+   "lastChapter": "tag.span.1@text##最新："
+  },
+  "ruleBookInfo": {
+   "name": "tag.h1@text",
+   "author": "id.info@tag.p.0@text",
+   "intro": "id.intro@text",
+   "tocUrl": "id.toc@href"
+  },
+  "ruleToc": {
+   "chapterList": "id.list@tag.li",
+   "chapterName": "tag.a@text",
+   "chapterUrl": "tag.a@href"
+  },
+  "ruleContent": {
+   "content": "id.content@html"
+  },
+  "loginUrl": "function login() {\n  var i = source.getLoginInfoMap();\n  source.putLoginHeader(JSON.stringify({ token: i['账号'] || '' }));\n  return '已登录：' + (i['账号'] || '');\n}\nfunction hello() { return '书源按钮已执行'; }",
+  "loginUi": "[{name:'账号',type:'text'},{name:'密码',type:'password'},{name:'线路',type:'select',chars:['主线','备用'],default:'主线'},{name:'测试按钮',type:'button',action:'hello()'}]"
+ }
+]

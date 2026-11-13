@@ -1,0 +1,96 @@
+name: STV
+options:
+  bundleIdPrefix: com.local
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  SWIFT_VERSION: "5.0"
+  TARGETED_DEVICE_FAMILY: "1,2"
+packages:
+  TDLibKit:
+    url: https://github.com/Swiftgram/TDLibKit
+    exactVersion: 1.5.2-tdlib-1.8.69-6126ecae
+  QuickJS:
+    path: Packages/QuickJS
+  AetherEngine:
+    path: ../AetherEngine
+targets:
+  STV:
+    type: application
+    platform: iOS
+    sources:
+      - STV
+    dependencies:
+      - package: TDLibKit
+      - package: QuickJS
+        product: CQuickJS
+      - package: AetherEngine
+        product: AetherEngine
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.local.STV
+      GENERATE_INFOPLIST_FILE: YES
+      MARKETING_VERSION: "1.5"
+      CURRENT_PROJECT_VERSION: "7"
+      SWIFT_EMIT_LOC_STRINGS: YES
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: STV/Info.plist
+      properties:
+        CFBundleDisplayName: i短剧
+        NSFaceIDUsageDescription: 用于解锁「片源管理」里隐藏的长视频片源
+        NSPhotoLibraryAddUsageDescription: 用于把你下载的图片和视频保存到相册
+        LSApplicationQueriesSchemes: [tg]
+        NSAppTransportSecurity:
+          # 「阅读」书源: many novel sites are http-only. (NSAllowsLocalNetworking must not be set alongside:
+          # iOS then ignores NSAllowsArbitraryLoads. Arbitrary loads already include the local proxy.)
+          NSAllowsArbitraryLoads: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIBackgroundModes:
+          - audio
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+  STVTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: STVTests
+        excludes:
+          - "Fixtures/Plugins/**"
+    dependencies:
+      - target: STV
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: com.local.STVTests
+  STVUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - STVUITests
+    dependencies:
+      - target: STV
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: com.local.STVUITests
+      TEST_TARGET_NAME: STV
+schemes:
+  STV:
+    build:
+      targets:
+        STV: all
+        STVTests: [test]
+        STVUITests: [test]
+    test:
+      targets:
+        - STVTests
+        - STVUITests

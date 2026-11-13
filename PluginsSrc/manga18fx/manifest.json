@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "com.idj.bundled.manga18fx",
+  "name": "Manga18fx",
+  "version": "1.0.0",
+  "author": { "name": "i短剧" },
+  "description": "Manga18fx 英文成人韩漫（Manhwa）。不需要登录。",
+  "type": "comic",
+  "adult": true,
+  "language": ["en"],
+  "minAppVersion": "1.5",
+  "entry": "main.js",
+  "permissions": {
+    "http": ["manga18fx.com"],
+    "media": ["manga18fx.com", "*.manga18fx.com"],
+    "cloudflare": true,
+    "storage": false,
+    "login": false
+  },
+  "capabilities": ["home", "category", "search", "detail", "pages"],
+  "settings": []
+}

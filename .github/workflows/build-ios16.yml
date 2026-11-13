@@ -1,0 +1,36 @@
+name: Build iOS 16 IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Clone and patch AetherEngine to iOS 16
+        run: |
+          git clone --depth 1 --branch 7.62.0 https://github.com/superuser404notfound/AetherEngine.git ../AetherEngine
+          sed -i '' -e 's/\.iOS(\.v18)/.iOS(.v16)/' -e 's/\.tvOS(\.v18)/.tvOS(.v16)/' ../AetherEngine/Package.swift
+          echo "--- patched platforms ---"
+          grep -n 'iOS(' ../AetherEngine/Package.swift || true
+
+      - name: Build unsigned IPA
+        run: bash scripts/package.sh dist
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: STV-ios16-unsigned
+          path: |
+            dist/*.ipa
+            dist/*.sh
+          if-no-files-found: error

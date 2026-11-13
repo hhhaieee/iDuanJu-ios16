@@ -1,0 +1,52 @@
+{
+ "manifest": {
+  "schema": 1,
+  "id": "com.idj.bundled.komikindo",
+  "name": "Komikindo",
+  "version": "1.0.0",
+  "author": {
+   "name": "i短剧"
+  },
+  "description": "Komikindo（印尼语）成人漫画 / 同人 / 韩漫。图片需要 Referer，插件已处理。",
+  "type": "comic",
+  "adult": true,
+  "language": [
+   "id"
+  ],
+  "minAppVersion": "1.5",
+  "entry": "main.js",
+  "permissions": {
+   "http": [
+    "komikindo.click"
+   ],
+   "media": [
+    "komikindo.click",
+    "linksaya.com",
+    "*.linksaya.com",
+    "i0.wp.com",
+    "i1.wp.com",
+    "i2.wp.com",
+    "i3.wp.com"
+   ],
+   "cloudflare": true,
+   "storage": false,
+   "login": false
+  },
+  "capabilities": [
+   "home",
+   "category",
+   "search",
+   "detail",
+   "pages"
+  ],
+  "settings": [],
+  "integrity": {
+   "files": {
+    "main.js": "sha256-s/Apeiq61HPPT+eTanpJQ5yTEemIDxBpdZvTo2GBx80="
+   }
+  }
+ },
+ "files": {
+  "main.js": "// Komikindo（komikindo.click，MangaThemesia 主题）· i短剧 idj1 漫画插件\nconst SITE = 'https://komikindo.click';\nconst REF = { Referer: SITE + '/' };\n\nfunction abs(u) {\n  if (!u) return '';\n  u = String(u).trim();\n  if (u.startsWith('//')) return 'https:' + u;\n  if (u.startsWith('/')) return SITE + u;\n  return u.replace(/^http:\\/\\//, 'https://'); // 图床同时支持 https；App 只允许 https\n}\nfunction slugOf(href) { const m = String(href || '').match(/\\/manga\\/([^/?#]+)/); return m ? m[1] : ''; }\n\nasync function getText(path) {\n  const res = await host.http.request({ url: abs(path), headers: REF, timeout: 15000 });\n  if (res.status === 404) throw host.error('E_NOT_FOUND', '页面不存在：' + path);\n  if (res.status < 200 || res.status >= 300) throw host.error('E_HTTP', 'HTTP ' + res.status + '：' + path);\n  return res;\n}\nasync function getDoc(path) { const r = await getText(path); return host.html.parse(r.body, r.url); }\n\nfunction parseCards(doc) {\n  const items = [], seen = {};\n  for (const a of doc.select('.bsx a[href*=\"/manga/\"]')) {\n    const id = slugOf(a.attr('href'));\n    if (!id || seen[id]) continue;\n    seen[id] = 1;\n    const img = a.selectFirst('img');\n    const tt = a.selectFirst('.tt');\n    const ep = a.selectFirst('.epxs');\n    const type = a.selectFirst('.typename');\n    items.push({\n      id,\n      title: (a.attr('title') || (tt ? tt.text() : '')).trim(),\n      cover: img ? abs(img.attr('src') || img.attr('data-src')) : '',\n      remarks: ep ? ep.text().trim() : '',\n      tags: type ? [type.text().trim()] : []\n    });\n  }\n  return items;\n}\nfunction hasNext(doc, page) {\n  if (doc.selectFirst('.hpage a.r, a.next.page-numbers')) return true;\n  const n = page + 1;\n  return doc.select('a.page-numbers').some(a => { const h = a.attr('href'); return h.includes('page/' + n + '/') || h.includes('page=' + n); });\n}\n\nconst CATEGORIES = [\n  ['update', '最近更新'], ['popular', '热门'], ['latest', '最新上架'],\n  ['g:manhwa', 'Manhwa'], ['g:manga', 'Manga'], ['g:full-color', 'Full Color'], ['g:romance', 'Romance'], ['g:drama', 'Drama'],\n  ['g:comedy', 'Comedy'], ['g:harem', 'Harem'], ['g:fantasy', 'Fantasy'], ['g:mature', 'Mature'], ['g:milf', 'MILF'], ['g:webtoon', 'Webtoon']\n].map(([id, name]) => ({ id, name }));\n\nexport default {\n  async home() {\n    const doc = await getDoc('/manga/?page=1&order=update');\n    return { categories: CATEGORIES, items: parseCards(doc), hasMore: hasNext(doc, 1) };\n  },\n\n  async category({ id, page = 1 }) {\n    const path = id.startsWith('g:')\n      ? '/genres/' + id.slice(2) + '/' + (page > 1 ? 'page/' + page + '/' : '')\n      : '/manga/?page=' + page + '&order=' + encodeURIComponent(id);\n    const doc = await getDoc(path);\n    const items = parseCards(doc);\n    return { items, hasMore: items.length > 0 && hasNext(doc, page) };\n  },\n\n  async search({ keyword, page = 1 }) {\n    const doc = await getDoc((page > 1 ? '/page/' + page + '/' : '/') + '?s=' + encodeURIComponent(keyword));\n    const items = parseCards(doc);\n    return { items, hasMore: items.length > 0 && hasNext(doc, page) };\n  },\n\n  async detail({ id }) {\n    const doc = await getDoc('/manga/' + id + '/');\n    const h1 = doc.selectFirst('h1.entry-title');\n    const img = doc.selectFirst('.thumb img');\n    const desc = doc.selectFirst('.entry-content-single');\n    let status = '', author = '';\n    for (const tr of doc.select('.infotable tr')) {\n      const tds = tr.select('td');\n      if (tds.length < 2) continue;\n      const k = tds[0].text().trim().toLowerCase(), v = tds[1].text().trim();\n      if (k === 'status') status = /complete|tamat/i.test(v) ? 'completed' : 'ongoing';\n      if (k === 'author') author = v;\n    }\n    const chapters = [], seen = {};\n    for (const a of doc.select('#chapterlist li a')) {\n      const href = a.attr('href');\n      const m = href.match(/^https:\\/\\/komikindo\\.click\\/([^/?#]+)\\/?$/);\n      if (!m || seen[m[1]] || !/chapter/i.test(m[1])) continue;\n      seen[m[1]] = 1;\n      const num = a.selectFirst('.chapternum');\n      chapters.push({ id: m[1], name: (num ? num.text() : a.text()).trim() });\n    }\n    chapters.reverse(); // 新→旧 改为 旧→新\n    return {\n      title: h1 ? h1.text().trim() : id,\n      cover: img ? abs(img.attr('src') || img.attr('data-src')) : '',\n      desc: desc ? desc.text().trim() : '',\n      author: author === 'N/A' ? '' : author,\n      tags: doc.select('.seriestugenre a, .mgen a').map(a => a.text().trim()).filter(Boolean),\n      status,\n      chapters\n    };\n  },\n\n  async pages({ chapterId }) {\n    const r = await getText('/' + chapterId + '/');\n    const m = r.body.match(/ts_reader\\.run\\((\\{[\\s\\S]*?\\})\\);/);\n    let urls = [];\n    if (m) {\n      try {\n        const o = JSON.parse(m[1]);\n        const src = (o.sources || []).find(s => (s.images || []).length) || {};\n        urls = (src.images || []).map(abs);\n      } catch (e) { host.log('ts_reader JSON 解析失败', String(e)); }\n    }\n    if (!urls.length) urls = host.html.parse(r.body, r.url).select('#readerarea img').map(i => abs(i.attr('src') || i.attr('data-src')));\n    urls = urls.filter(u => /^https:\\/\\//.test(u));\n    if (!urls.length) throw host.error('E_PARSE', '章节里没有找到图片：' + chapterId);\n    return { images: urls.map(url => ({ url })), headers: REF };\n  }\n};\n"
+ }
+}
