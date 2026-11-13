@@ -42,6 +42,8 @@ targets:
         NSFaceIDUsageDescription: 用于解锁「片源管理」里隐藏的长视频片源
         NSPhotoLibraryAddUsageDescription: 用于把你下载的图片和视频保存到相册
         LSApplicationQueriesSchemes: [tg]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         NSAppTransportSecurity:
           # 「阅读」书源: many novel sites are http-only. (NSAllowsLocalNetworking must not be set alongside:
           # iOS then ignores NSAllowsArbitraryLoads. Arbitrary loads already include the local proxy.)
