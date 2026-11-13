@@ -96,11 +96,11 @@ struct EmptyStateView: View {
 }
 
 extension View {
-    /// iOS 16.4 `.scrollBounceBehavior(_:axes:)` → iOS 16.0-16.3 no-op。
+    /// iOS 16.4 `.scrollBounceBehavior(.basedOnSize, axes:)` → iOS 16.0-16.3 no-op。
     @ViewBuilder
-    func compatScrollBounceBehavior(_ behavior: ScrollBounceBehavior, axes: Axis.Set) -> some View {
+    func compatScrollBounceBasedOnSize(axes: Axis.Set) -> some View {
         if #available(iOS 16.4, *) {
-            self.scrollBounceBehavior(behavior, axes: axes)
+            self.scrollBounceBehavior(.basedOnSize, axes: axes)
         } else {
             self
         }

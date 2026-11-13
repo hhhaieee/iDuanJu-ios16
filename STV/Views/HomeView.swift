@@ -295,7 +295,7 @@ private struct HomeFeedPage: View {
                 }
             }.padding(.horizontal, gutter)
         }
-        .compatScrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .compatScrollBounceBasedOnSize(axes: .horizontal)
         .padding(.top, 4).padding(.bottom, 12)
     }
 
@@ -315,7 +315,7 @@ private struct HomeFeedPage: View {
                 }
             }.padding(.horizontal, gutter)
         }
-        .compatScrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .compatScrollBounceBasedOnSize(axes: .horizontal)
         .padding(.top, 4).padding(.bottom, 12)
     }
 
