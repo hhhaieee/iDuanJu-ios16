@@ -53,6 +53,9 @@ struct PlayerScreen: View {
     /// Portrait feed content offset (pt): the shared video layer rides along with the page being swiped.
     @State private var feedScrollY: CGFloat = 0
     @State private var feedSettleWork: DispatchWorkItem?
+    /// 初始布局/程序性 scrollTo 会触发 onPreferenceChange(y=0)，若此时 current 已被 load() 设为
+    /// 用户点选的集，0.2s 后的 select(0) 会把它拉回第一集。等初始滚动落地后再开始响应手势。
+    @State private var feedInitialized = false
     /// Running double-tap seek (+10/+20/… s) and which side it is on; drives the side bubble.
     @State private var seekRun: (total: Int, at: Date)?
     @Environment(\.verticalSizeClass) private var vClass
@@ -332,6 +335,7 @@ struct PlayerScreen: View {
                     .onPreferenceChange(ScrollOffsetKey.self) { minY in
                         let y = -minY
                         feedScrollY = y
+                        guard feedInitialized else { return }
                         feedSettleWork?.cancel()
                         let work = DispatchWorkItem {
                             let pageHeight = geo.size.height
@@ -345,12 +349,14 @@ struct PlayerScreen: View {
                         feedSettleWork = work
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
                     }
-                    .onAppear { proxy.scrollTo(co.current, anchor: .top) }
+                    .onAppear { proxy.scrollTo(co.current ?? 0, anchor: .top) }
                     .onChange(of: co.current) { new in
                         if let new { withAnimation { proxy.scrollTo(new, anchor: .top) } }
                         if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
                         lastShownCurrent = new
                         releaseHeldIfSettled()
+                        // 初始定位的 scrollTo 落地后再开始响应手势滚动，避免初始 y=0 把选集拉回第一集。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feedInitialized = true }
                     }
                     .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil)
                 }
