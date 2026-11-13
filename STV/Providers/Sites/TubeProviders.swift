@@ -207,7 +207,7 @@ struct XVProvider: SiteProvider {
         let title = call("setVideoTitle", h).nonEmptyOr(s.title)
         let cover = call("setThumbUrl169", h).nonEmptyOr(HTML.ogImage(h)).nonEmptyOr(s.cover)
         let dur = HTML.groups("\"duration\"\\s*:\\s*\"PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?\"", h)
-            .map { (Int($0[1]) ?? 0) * 3600 + (Int($0[2]) ?? 0) * 60 + (Int($0[3]) ?? 0) } ?? s.duration
+            .map { g -> Int in let hh = Int(g[1]) ?? 0; let mm = Int(g[2]) ?? 0; let ss = Int(g[3]) ?? 0; return hh * 3600 + mm * 60 + ss } ?? s.duration
         let tags = HTML.all("<a[^>]*class=\"[^\"]*is-keyword[^\"]*\"[^>]*>([^<]+)</a>", h).map { HTML.cleanText($0[1]) }
         return HGSeriesDetail(source: s.source, seriesId: s.seriesId, title: title, cover: cover, desc: s.author.map { "上传者 \($0)" } ?? "",
                               author: s.author, actors: [], onlineTime: 0, totalEps: 1,

@@ -241,7 +241,7 @@ struct PlayerScreen: View {
         .sheet(item: $verifyTarget) { t in SiteVerifySheet(target: t) { if let c = co.current { co.activate(c) } } }
         .sheet(isPresented: $danmakuSheet, onDismiss: flashChrome) {
             DanmakuSettingsSheet(available: series.source == .hongguo)
-                .presentationDragIndicator(.visible).presentationBackground(STVTheme.surface)
+                .presentationDragIndicator(.visible).compatPresentationBackground(STVTheme.surface)
         }
     }
 
@@ -296,10 +296,9 @@ struct PlayerScreen: View {
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
             .scrollPosition(id: Binding(get: { co.current }, set: { co.select($0) }))
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in feedScrollY = y }
+            .compatScrollFeedback(onOffset: { feedScrollY = $0 }, onSettled: { feedSettled = $0; releaseHeldIfSettled() })
             .compatSelectionFeedback(trigger: co.current)
             .onChange(of: co.readyIndex) { _ in releaseHeldIfSettled() }
-            .onScrollPhaseChange { _, phase in feedSettled = phase == .idle; releaseHeldIfSettled() }
             .onChange(of: co.current) { new in
                 if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
                 lastShownCurrent = new

@@ -15,7 +15,7 @@ struct ImageViewer: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(1 - min(0.7, abs(drag) / 600)).ignoresSafeArea()
+            Color.black.opacity(1 - min(0.7, Double(abs(drag)) / 600)).ignoresSafeArea()
             TabView(selection: $index) {
                 ForEach(items.indices, id: \.self) { i in
                     ZoomableImage(url: items[i].url, headers: headers, zoomed: $zoomed).tag(i)

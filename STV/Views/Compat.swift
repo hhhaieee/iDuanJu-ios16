@@ -94,3 +94,37 @@ struct EmptyStateView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+extension View {
+    /// iOS 16.4 `.scrollBounceBehavior(_:axes:)` → iOS 16.0-16.3 no-op。
+    @ViewBuilder
+    func compatScrollBounceBehavior(_ behavior: ScrollBounceBehavior, axes: Axis.Set) -> some View {
+        if #available(iOS 16.4, *) {
+            self.scrollBounceBehavior(behavior, axes: axes)
+        } else {
+            self
+        }
+    }
+
+    /// iOS 16.4 `.presentationBackground(_:)` → iOS 16.0-16.3 no-op。
+    @ViewBuilder
+    func compatPresentationBackground<S: ShapeStyle>(_ style: S) -> some View {
+        if #available(iOS 16.4, *) {
+            self.presentationBackground(style)
+        } else {
+            self
+        }
+    }
+
+    /// iOS 18 滚动几何/相位反馈 → iOS 16/17 no-op（竖屏 feed 的偏移与停止检测，属体验优化）。
+    @ViewBuilder
+    func compatScrollFeedback(onOffset: @escaping (CGFloat) -> Void, onSettled: @escaping (Bool) -> Void) -> some View {
+        if #available(iOS 18.0, *) {
+            self
+                .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in onOffset(y) }
+                .onScrollPhaseChange { _, phase in onSettled(phase == .idle) }
+        } else {
+            self
+        }
+    }
+}

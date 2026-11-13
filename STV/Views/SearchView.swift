@@ -35,7 +35,7 @@ struct SearchView: View {
             if let q = initialQuery, submitted.isEmpty, !q.isEmpty { query = q; submit() }
             if hot.isEmpty { await loadHot() }
         }
-        .onChange(of: source) { run() }
+        .onChange(of: source) { _ in run() }
     }
 
     // MARK: landing

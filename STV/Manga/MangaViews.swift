@@ -308,7 +308,7 @@ struct MangaReaderView: View {
                     .frame(width: geo.size.width * scale)
                 }
             }
-            .gesture(MagnifyGesture().onChanged { scale = max(1, min(3, baseScale * $0.magnification)) }.onEnded { _ in baseScale = scale })
+            .gesture(MagnificationGesture().onChanged { scale = max(1, min(3, baseScale * $0)) }.onEnded { _ in baseScale = scale })
             .onTapGesture(count: 2) { withAnimation { scale = scale > 1 ? 1 : 2; baseScale = scale } }
             .onTapGesture { withAnimation { chrome.toggle() } }
             .onAppear { let target = page; if target > 0 { proxy.scrollTo(target, anchor: .top) } }

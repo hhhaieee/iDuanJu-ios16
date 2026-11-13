@@ -20,9 +20,9 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         case .file(let u): return AVPlayerItem(url: u)
         case .direct(let u):
             let mp4 = u.path.hasSuffix(".mp4") || u.path.hasPrefix("/tg/")
-            return AVPlayerItem(asset: AVURLAsset(url: u, options: mp4 ? [AVURLAssetOverrideMIMETypeKey: "video/mp4"] : nil))
+            return AVPlayerItem(asset: AVURLAsset(url: u, options: mp4 ? ["AVURLAssetOverrideMIMETypeKey": "video/mp4"] : nil))
         case .remote(let u, let headers):
-            var o: [String: Any] = [AVURLAssetOverrideMIMETypeKey: "video/mp4"]
+            var o: [String: Any] = ["AVURLAssetOverrideMIMETypeKey": "video/mp4"]
             if !headers.isEmpty { o["AVURLAssetHTTPHeaderFieldsKey"] = headers }
             return AVPlayerItem(asset: AVURLAsset(url: u, options: o))
         case .stream(let loader, let url):
@@ -599,9 +599,9 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         case .file(let u): return AVURLAsset(url: u)
         case .direct(let u):
             guard u.path.hasSuffix(".mp4") else { return nil }
-            return AVURLAsset(url: u, options: [AVURLAssetOverrideMIMETypeKey: "video/mp4"])
+            return AVURLAsset(url: u, options: ["AVURLAssetOverrideMIMETypeKey": "video/mp4"])
         case .remote(let u, let h):
-            return AVURLAsset(url: u, options: [AVURLAssetOverrideMIMETypeKey: "video/mp4", "AVURLAssetHTTPHeaderFieldsKey": h])
+            return AVURLAsset(url: u, options: ["AVURLAssetOverrideMIMETypeKey": "video/mp4", "AVURLAssetHTTPHeaderFieldsKey": h])
         case .stream(let loader, let s):
             guard let u = URL(string: s), !AetherPlayerEngine.isPlaylist(u) else { return nil }
             return AVURLAsset(url: u, options: ["AVURLAssetHTTPHeaderFieldsKey": loader.headers])
@@ -618,7 +618,6 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         default: target = nil
         }
         guard let (u, h) = target else { return }
-        _ = await AetherEngine.prewarm(url: u, httpHeaders: AetherPlayerEngine.headers(h, for: u))
     }
 
     private func prepare(_ i: Int) async throws -> Source {

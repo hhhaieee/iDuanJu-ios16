@@ -41,7 +41,6 @@ import UIKit
 
     init() throws {
         engine = try AetherEngine()
-        engine.logTag = "stv"
         engine.backgroundPlaybackEnabled = true
         engine.bind(view: view)
         view.backgroundColor = .black
@@ -114,7 +113,6 @@ import UIKit
         mounted = false
         var options = LoadOptions()
         options.autoplay = false
-        options.generatesBackgroundScrubPreviews = false
         let source: MediaSource
         switch input {
         case .url(let u, let h, let hls):
@@ -260,7 +258,7 @@ import UIKit
         if !codec.isEmpty { t.codec = codec }
         if let fps = engine.sourceVideoFrameRate, fps > 0 { t.fps = Int(fps.rounded()) }
         if engine.sourceVideoFormat != .sdr { t.hdr = true }
-        if let d = engine.sourceVideoStreamFormat?.bitDepth, d > 0 { t.bitDepth = d } else if t.hdr { t.bitDepth = 10 }
+        if t.hdr { t.bitDepth = 10 }
         if engine.sourceVideoBitrate > 0 { t.bitrate = Double(engine.sourceVideoBitrate) / 1_000_000 }
         if let a = engine.audioTracks.first(where: { $0.id == engine.activeAudioTrackIndex }) ?? engine.audioTracks.first {
             t.audio = PlayerTech.audioName(codec: a.codec, channels: a.channels)
@@ -281,7 +279,7 @@ import UIKit
     }
 
     func makePiPController() -> AVPictureInPictureController? {
-        if let s = engine.softwarePiPSource { return s.makePictureInPictureController() }
+        // AetherEngine 6.89.1 无软件路径 PiP 构建 API，iOS16 降级为仅原生路径 PiP。
         return engine.nativePlayerLayer.flatMap { AVPictureInPictureController(playerLayer: $0) }
     }
 

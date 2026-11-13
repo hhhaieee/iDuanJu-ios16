@@ -44,9 +44,9 @@ struct CategoryView: View {
         .background(STVTheme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .task { if pager.items.isEmpty { reload() } }
-        .onChange(of: mode) { Task { if mode == .filter, panel == nil { await loadPanel() }; reload() } }
-        .onChange(of: genre) { if !genre.subs.contains(sub) { sub = genre.subs[0] }; reload() }
-        .onChange(of: sub) { reload() }
+        .onChange(of: mode) { _ in Task { if mode == .filter, panel == nil { await loadPanel() }; reload() } }
+        .onChange(of: genre) { _ in if !genre.subs.contains(sub) { sub = genre.subs[0] }; reload() }
+        .onChange(of: sub) { _ in reload() }
     }
 
     private func loadPanel() async {

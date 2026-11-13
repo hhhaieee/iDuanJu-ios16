@@ -46,7 +46,7 @@ struct SiteVerifySheet: View {
                 }
             }
         }
-        .presentationBackground(STVTheme.bg)
+        .compatPresentationBackground(STVTheme.bg)
         .onAppear { SiteLog.add("[\(target.source.label)] 打开验证页 \(target.url)") }
     }
 

@@ -365,7 +365,7 @@ struct ContinueRow: View {
                 }.padding(.horizontal, 16)
             }
             // Content narrower than the screen → don't grab horizontal drags (首页横滑翻来源页).
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            .compatScrollBounceBehavior(.basedOnSize, axes: .horizontal)
         }
     }
 }
