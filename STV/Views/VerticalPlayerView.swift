@@ -234,7 +234,13 @@ struct PlayerScreen: View {
             Button("好") { co.pipError = nil }
         } message: { Text(co.pipError ?? "") }
         .onAppear { OrientationGate.unlock() }
-        .onDisappear { co.teardown(); adjuster.restoreBrightness(); OrientationGate.lockPortrait() }
+        .onDisappear {
+            adjuster.restoreBrightness()
+            OrientationGate.lockPortrait()
+            // iOS 16 上在视图销毁过程中同步改写 @Published 状态可能触发闪退，把清理延后到下一帧执行。
+            let coordinator = co
+            DispatchQueue.main.async { coordinator.teardown() }
+        }
         .onChange(of: co.current) { _ in scrubbing = false; flashChrome() }
         .onChange(of: co.readyIndex) { index in if index != nil { flashChrome() } }
         .onChange(of: landscape) { l in if !l { locked = false }; panel = nil }
