@@ -14,8 +14,7 @@ packages:
   QuickJS:
     path: Packages/QuickJS
   AetherEngine:
-    url: https://github.com/superuser404notfound/AetherEngine
-    from: 6.89.1
+    path: AetherEngine
 targets:
   STV:
     type: application
