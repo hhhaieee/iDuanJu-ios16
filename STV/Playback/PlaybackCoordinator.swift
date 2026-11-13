@@ -170,8 +170,8 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         // teardown 里先释放 session、再暂停播放器（setRate:0）时，AVFoundation 会访问已释放的
         // 观察者 → object_getClass 崩溃（EXC_BREAKPOINT / SIGTRAP，崩溃日志见 setRate: 帧）。
         // iOS 16 改用 MPNowPlayingInfoCenter + MPRemoteCommandCenter（registerSharedCommands 已注册远程命令）。
+        let player = av.player
         if #available(iOS 17.0, *) {
-            let player = av.player
             let session = MPNowPlayingSession(players: [player])
             session.automaticallyPublishesNowPlayingInfo = true
             nowPlaying = session
