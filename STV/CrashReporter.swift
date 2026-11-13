@@ -6,10 +6,7 @@ import UIKit
 /// 找到 crash.log 并导出，方便远程定位闪退原因。
 enum CrashReporter {
     static func install() {
-        NSSetUncaughtExceptionHandler { ex in
-            let stack = Thread.callStackSymbols.joined(separator: "\n")
-            write("NSException \(ex.name.rawValue): \(ex.reason ?? "")\n\(stack)")
-        }
+        NSSetUncaughtExceptionHandler(stvExceptionHandler)
         signal(SIGSEGV, stvCrashSignalHandler)
         signal(SIGABRT, stvCrashSignalHandler)
         signal(SIGBUS, stvCrashSignalHandler)
@@ -32,6 +29,12 @@ enum CrashReporter {
         }
         try? line.write(to: url, atomically: true, encoding: .utf8)
     }
+}
+
+/// 未捕获 NSException 处理器（无捕获的顶层函数，可安全作为 C 函数指针）。
+private func stvExceptionHandler(_ ex: NSException) {
+    let stack = Thread.callStackSymbols.joined(separator: "\n")
+    CrashReporter.write("NSException \(ex.name.rawValue): \(ex.reason ?? "")\n\(stack)")
 }
 
 /// 信号处理器（无捕获的顶层函数，可安全传给 signal）。
