@@ -1,0 +1,42 @@
+name: Build unsigned IPA (iOS 16)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
+          xcodebuild -version
+          swift --version
+
+      - name: Install xcodegen
+        run: |
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Build unsigned IPA
+        run: |
+          set -euo pipefail
+          scripts/package.sh
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: STV-unsigned-ipa
+          path: |
+            dist/*.ipa
+            dist/*.app.zip
+          if-no-files-found: error
+          retention-days: 30

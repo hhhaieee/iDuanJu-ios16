@@ -25,7 +25,7 @@ final class SiteParsingTests: XCTestCase {
         d.removePersistentDomain(forName: "hgtest")
         d.set("https://x.adihsppe.cc", forKey: HuangguoClient.baseKey)
         XCTAssertEqual(HuangguoClient.mirrorCandidates(defaults: d).first, "https://x.adihsppe.cc")
-        XCTAssertTrue(HuangguoClient.mirrorCandidates(defaults: d).contains("https://00b4b.adihsppe.cc"))
+        XCTAssertTrue(HuangguoClient.mirrorCandidates(defaults: d).contains("https://huangguoai.io"))
     }
 
     // MARK: Hanime1 裏番/泡麵番 compact grid

@@ -23,12 +23,12 @@ actor HuangguoClient {
     static let shared = HuangguoClient()
 
     static let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1"
-    /// AI site mirrors (2026-11: old *.ediayikma.cc now 301 → *.adihsppe.cc; huangguoai.com is unreachable from
-    /// mainland networks). More are discovered from the site's /go-home/ page and persisted.
-    static let aiMirrors = ["https://00b4b.adihsppe.cc", "https://bsl8m.adihsppe.cc", "https://hgai12.com",
-                            "https://brma.adihsppe.cc", "https://mzofzp.adihsppe.cc", "https://rpb7bz.adihsppe.cc", "https://v2tg.adihsppe.cc",
-                            "https://huangguoai.com", "https://huangguoai.io", "https://huangguoai.me", "https://huangguoai.ai",
-                            "https://thu.agdkczeyx.cc", "https://ttvoij.ediayikma.cc"]
+    /// AI site mirrors (2026-11-14: the *.adihsppe.cc / *.ediayikma.cc / *.agdkczeyx.cc mirrors are all dead;
+    /// hgai12.com answers 200 on / but serves an OLD site structure whose /video/<id>/ and
+    /// /api/videos/<id>/episodes/<ep>/playback return HTTP 404, which surfaced to users as
+    /// 「上游错误：HTTP 404」. Only the huangguoai.* mirrors carry the current structure.)
+    /// Put the known-good mirror first so the mirror race never lands on a stale one.
+    static let aiMirrors = ["https://huangguoai.io", "https://huangguoai.com", "https://huangguoai.me", "https://huangguoai.ai"]
     static let mirrorsKey = "stv.huangguo.aiMirrors"
     static let baseKey = "stv.huangguo.aiBase"
     static let videoBase = "https://huangguo.video"
@@ -108,7 +108,9 @@ actor HuangguoClient {
         r.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         guard let (d, resp) = try? await session.data(for: r), let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
         let body = String(decoding: d, as: UTF8.self)
-        guard body.contains("hg-drama-card") || body.contains("videoInitialData") || body.contains("/ai-duanju/") else { return nil }
+        // Require the CURRENT site structure marker. The old `|| body.contains("/ai-duanju/")` clause let
+        // stale mirrors (e.g. hgai12.com) pass the probe even though their detail/playback endpoints 404.
+        guard body.contains("hg-drama-card") || body.contains("videoInitialData") else { return nil }
         let f = http.url ?? u
         return ("\(f.scheme ?? "https")://\(f.host ?? u.host ?? "")", body)
     }
