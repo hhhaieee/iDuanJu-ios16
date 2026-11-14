@@ -30,8 +30,8 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.local.STV
       GENERATE_INFOPLIST_FILE: YES
-      MARKETING_VERSION: "1.5.1"
-      CURRENT_PROJECT_VERSION: "10"
+      MARKETING_VERSION: "1.5.2"
+      CURRENT_PROJECT_VERSION: "11"
       SWIFT_EMIT_LOC_STRINGS: YES
       SWIFT_OBJC_BRIDGING_HEADER: STV/Support/STV-Bridging-Header.h
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -50,6 +50,21 @@ targets:
           # iOS then ignores NSAllowsArbitraryLoads. Arbitrary loads already include the local proxy.)
           NSAllowsArbitraryLoads: true
         UILaunchScreen: {}
+        # 自定义插件文件类型：没有这个声明，系统文件选择器会把 .idjplugin 置灰（"无法打开的类型"）。
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.stv.idjplugin
+            UTTypeDescription: iDuanJu Plugin
+            UTTypeConformsTo:
+              - public.data
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - idjplugin
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: iDuanJu Plugin
+            LSItemContentTypes:
+              - com.stv.idjplugin
+            LSHandlerRank: Owner
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UIBackgroundModes:
