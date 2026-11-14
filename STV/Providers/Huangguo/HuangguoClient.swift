@@ -23,12 +23,12 @@ actor HuangguoClient {
     static let shared = HuangguoClient()
 
     static let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1"
-    /// AI site mirrors (2026-11-14: the *.adihsppe.cc / *.ediayikma.cc / *.agdkczeyx.cc mirrors are all dead;
-    /// hgai12.com answers 200 on / but serves an OLD site structure whose /video/<id>/ and
-    /// /api/videos/<id>/episodes/<ep>/playback return HTTP 404, which surfaced to users as
-    /// 「上游错误：HTTP 404」. Only the huangguoai.* mirrors carry the current structure.)
-    /// Put the known-good mirror first so the mirror race never lands on a stale one.
-    static let aiMirrors = ["https://huangguoai.io", "https://huangguoai.com", "https://huangguoai.me", "https://huangguoai.ai"]
+    /// AI site mirrors. 黄果镜像域名会随风控频繁轮换：*.adihsppe.cc / *.ediayikma.cc 已全部失效，
+    /// 2026-11-14 当下存活的是 huangguoai.io / huangguoai.me 以及经发布页跳转的 *.bmikbxhi.cc 等。
+    /// 这里只放「已知可用的入口」，其余镜像靠 ensureAIBase 竞速 + learnMirrors 从 /go-home/ 动态发现。
+    /// 把已知可用的镜像放在最前，避免竞速误选到返回 200 但结构已过期的旧镜像（曾导致「上游错误：HTTP 404」）。
+    static let aiMirrors = ["https://huangguoai.io", "https://huangguoai.me", "https://jrnq2.bmikbxhi.cc",
+                            "https://huangguoai.com", "https://huangguoai.ai"]
     static let mirrorsKey = "stv.huangguo.aiMirrors"
     static let baseKey = "stv.huangguo.aiBase"
     static let videoBase = "https://huangguo.video"
@@ -91,11 +91,17 @@ actor HuangguoClient {
         return out
     }
 
-    /// Mirror origins listed on a /go-home/ (发布页) page: same-site hosts only (huangguoai.* / *.adihsppe.cc / hgai*.com).
+    /// Mirror origins listed on a /go-home/ (发布页) page. 镜像后缀会轮换（adihsppe.cc → bmikbxhi.cc /
+    /// khiymzzky.cc / qcbdxvuy.cc …），因此识别发布页里所有「*.cc」镜像（黄果镜像几乎都用 .cc 后缀）
+    /// 以及 huangguo*/hgai* 域名，并排除 t.me / google / tiktok 等第三方链接。
     static func discoveredMirrors(_ html: String) -> [String] {
         var out: [String] = []
-        for m in HTML.all("https://((?:[a-z0-9-]+\\.)?(?:adihsppe\\.cc|huangguoai\\.(?:com|io|me|ai)|hgai\\d*\\.com))(?=[/\"'\\s<])", html) {
-            let o = "https://" + m[1]
+        for m in HTML.all("https://([a-z0-9-]+\\.[a-z0-9.-]*(?:\\.cc|\\.com|\\.io|\\.me|\\.ai))(?=[/\"'\\s<])", html) {
+            let host = m[1].lowercased()
+            let isCC = host.hasSuffix(".cc")
+            let isHG = host.contains("huangguo") || host.hasPrefix("hgai")
+            guard isCC || isHG else { continue }
+            let o = "https://" + host
             if !out.contains(o) { out.append(o) }
         }
         return out
