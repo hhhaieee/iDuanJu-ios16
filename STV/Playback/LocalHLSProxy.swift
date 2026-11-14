@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import CommonCrypto
 
 /// Tiny loopback HTTP server (127.0.0.1, random port) for SupJav-style HLS:
 /// - playlists are fetched with the embed's Referer/Origin and every URI is rewritten back to us;
@@ -23,6 +24,13 @@ final class LocalHLSProxy: @unchecked Sendable {
         /// 红果 CENC MP4: content key, and the per-range decryptor once the header is read (`prepareCENC`).
         var cencKey: String?
         var cenc: CENCDecryptor.RangePlan?
+        /// AES-128 HLS（黄果）：本地解密。密钥在 resolve 时已取到 / 或首次拿到 playlist 时补取；
+        /// IV 来自 EXT-X-KEY，缺省时按 HLS 规范用分片的 media sequence（128bit 大端）。
+        /// 本地解密让 AVPlayer 看到的是明文 TS，彻底绕开 iOS16 上密钥请求超时（CoreMediaErrorDomain -19152）。
+        var aesKey: Data?
+        var aesIV: Data?
+        var segSeq: [String: Int64] = [:]
+        var seqBase: Int64 = 0
         /// MP4 chunk size (CENC uses small chunks so the header and first frames arrive fast on slow links).
         var chunk = BufferSettings.mp4Chunk
     }
@@ -42,9 +50,10 @@ final class LocalHLSProxy: @unchecked Sendable {
         return URLSession(configuration: c)
     }()
 
-    /// Proxy URL for an upstream m3u8 (nil if the listener can't start).
-    func playlistURL(_ upstream: String, headers: [String: String], strip: Bool = true, budget: Int = 0) -> String? {
-        register(upstream, headers: headers, strip: strip, budget: budget, kind: "p.m3u8")
+    /// Proxy URL for an upstream m3u8 (nil if the listener can't start). `aesKey`: resolve 阶段已取到的
+    /// AES-128 密钥 hex（空则首次拿到 playlist 时自行补取）。
+    func playlistURL(_ upstream: String, headers: [String: String], strip: Bool = true, budget: Int = 0, aesKey: String = "") -> String? {
+        register(upstream, headers: headers, strip: strip, budget: budget, kind: "p.m3u8", aesKeyHex: aesKey)
     }
 
     /// Proxy URL for a progressive MP4 (Range requests served chunk-wise from the prefetch cache).
@@ -111,13 +120,15 @@ final class LocalHLSProxy: @unchecked Sendable {
 
     func tdSession(_ token: String) -> TDStreamSession? { route(token)?.td }
 
-    private func register(_ upstream: String, headers: [String: String], strip: Bool, budget: Int, kind: String) -> String? {
+    private func register(_ upstream: String, headers: [String: String], strip: Bool, budget: Int, kind: String, aesKeyHex: String = "") -> String? {
         guard let port = start() else { return nil }
         let token = String(UUID().uuidString.prefix(8)).lowercased()
         let pf = budget > 0 ? makePrefetcher(token, budget, headers, strip) : nil
         lock.lock()
         if routes.count > 64 { routes.values.forEach { $0.prefetcher?.stop() }; routes = [:] }
-        routes[token] = Route(headers: headers, strip: strip, prefetcher: pf)
+        var rt = Route(headers: headers, strip: strip, prefetcher: pf)
+        if !aesKeyHex.isEmpty, let k = Bytes.fromHex(aesKeyHex), k.count == 16 { rt.aesKey = Data(k) }
+        routes[token] = rt
         lock.unlock()
         return "http://127.0.0.1:\(port)/\(token)/\(kind)?u=\(Self.b64(upstream))"
     }
@@ -257,7 +268,11 @@ final class LocalHLSProxy: @unchecked Sendable {
         if segs[1] == "v.mp4" { return await serveMP4(c, token: segs[0], url: url, route: rt, range: rangeHeader, head: parts[0] == "HEAD") }
         if segs[1] == "s.ts", let pf = rt.prefetcher {
             let unit = PrefetchUnit(key: PrefetchStore.key(upstream), url: url, range: nil, start: 0, duration: 0)
-            do { return reply(c, 200, "video/mp2t", try await pf.data(for: unit.key, fallback: unit)) }
+            do {
+                var d = try await pf.data(for: unit.key, fallback: unit)
+                d = Self.aesIfEnabled(d, route: rt, url: upstream)
+                return reply(c, 200, "video/mp2t", d)
+            }
             catch { return reply(c, 502, "text/plain", Data(error.localizedDescription.utf8)) }
         }
         var r = URLRequest(url: url)
@@ -274,10 +289,20 @@ final class LocalHLSProxy: @unchecked Sendable {
                 if let pf = rt.prefetcher, let units = HLSMedia.parse(original, base: final), units.allSatisfy({ $0.range == nil }) {
                     pf.setUnits(units)   // the variant AVPlayer actually chose
                 }
-                let text = rewrite(original, base: final, token: segs[0])
+                // AES-128：首次拿到 playlist 时补取密钥 / IV（coordinator 已传入密钥则只补 IV）。
+                let aes = await prepareAES(rt.aesKey, rt.aesIV, rt.seqBase, headers: rt.headers, playlist: original, base: final)
+                lock.lock()
+                if aes.key != nil { routes[segs[0]]?.aesKey = aes.key; routes[segs[0]]?.aesIV = aes.iv; routes[segs[0]]?.seqBase = aes.seqBase }
+                lock.unlock()
+                let (text, seqs) = rewrite(original, base: final, token: segs[0], aes: aes.key != nil)
+                if aes.key != nil {
+                    lock.lock(); routes[segs[0]]?.segSeq = seqs; lock.unlock()
+                }
                 reply(c, 200, "application/vnd.apple.mpegurl", Data(text.utf8))
             case "s.ts":
-                reply(c, 200, "video/mp2t", rt.strip ? Self.stripFakeHeader(d) : d)
+                var out = rt.strip ? Self.stripFakeHeader(d) : d
+                out = Self.aesIfEnabled(out, route: rt, url: upstream)
+                reply(c, 200, "video/mp2t", out)
             default:
                 reply(c, 200, (resp as? HTTPURLResponse)?.mimeType ?? "application/octet-stream", d)
             }
@@ -459,26 +484,107 @@ final class LocalHLSProxy: @unchecked Sendable {
 
     // MARK: Playlist rewrite
 
-    private func rewrite(_ pl: String, base: URL, token: String) -> String {
+    /// Absolutize URIs; nested playlists / key / init maps go back through us (`r` = raw passthrough).
+    /// AES 本地解密时密钥行替换为 METHOD=NONE，同时记录每条分片的 media sequence（供无 IV 解密用）。
+    private func rewrite(_ pl: String, base: URL, token: String, aes: Bool) -> (String, [String: Int64]) {
         func local(_ raw: String, _ kind: String) -> String {
             guard let u = URL(string: raw, relativeTo: base)?.absoluteURL else { return raw }
             return "http://127.0.0.1:\(port)/\(token)/\(kind)?u=\(Self.b64(u.absoluteString))"
         }
         var expectPlaylist = false
-        return pl.split(separator: "\n", omittingEmptySubsequences: false).map { raw -> String in
+        var seq = seqCounter(for: token)
+        var segSeq: [String: Int64] = [:]
+        let text = pl.split(separator: "\n", omittingEmptySubsequences: false).map { raw -> String in
             let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             let up = line.uppercased()
             if up.hasPrefix("#EXT-X-STREAM-INF") { expectPlaylist = true; return line }
-            if up.hasPrefix("#EXT-X-KEY") || up.hasPrefix("#EXT-X-MAP") || up.hasPrefix("#EXT-X-MEDIA") || up.hasPrefix("#EXT-X-I-FRAME-STREAM-INF") {
+            if up.hasPrefix("#EXT-X-MEDIA-SEQUENCE") { seq = Int64(line.split(separator: ":").last ?? "") ?? 0; return line }
+            if up.hasPrefix("#EXT-X-KEY") {
+                guard let m = HTML.groups("URI\\s*=\\s*\"([^\"]+)\"", line) else { return line }
+                return aes ? "#EXT-X-KEY:METHOD=NONE" : line.replacingOccurrences(of: m[1], with: local(m[1], "r"))
+            }
+            if up.hasPrefix("#EXT-X-MAP") || up.hasPrefix("#EXT-X-MEDIA") || up.hasPrefix("#EXT-X-I-FRAME-STREAM-INF") {
                 guard let m = HTML.groups("URI\\s*=\\s*\"([^\"]+)\"", line) else { return line }
                 let kind = up.hasPrefix("#EXT-X-MEDIA") || up.hasPrefix("#EXT-X-I-FRAME") ? "p.m3u8" : "r"
                 return line.replacingOccurrences(of: m[1], with: local(m[1], kind))
             }
             if line.isEmpty || line.hasPrefix("#") { return line }
             defer { expectPlaylist = false }
+            guard let u = URL(string: line, relativeTo: base)?.absoluteURL else { return line }
+            if aes { segSeq[u.absoluteString] = seq; seq += 1 }
             let isPlaylist = expectPlaylist || line.lowercased().contains(".m3u8")
             return local(line, isPlaylist ? "p.m3u8" : "s.ts")
         }.joined(separator: "\n")
+        return (text, segSeq)
+    }
+
+    /// 该 token 路由当前的 media sequence 起点（上次 rewrite 已记录时延续，否则 0）。
+    private func seqCounter(for token: String) -> Int64 {
+        lock.lock(); defer { lock.unlock() }
+        return routes[token]?.seqBase ?? 0
+    }
+
+    // MARK: AES-128 local decryption
+
+    /// 从 playlist 首个 AES-128 KEY 行补取密钥 / IV（resolve 传过密钥时只补 IV）。返回补齐后的值。
+    private func prepareAES(_ key: Data?, _ iv: Data?, _ seqBaseIn: Int64, headers: [String: String], playlist: String, base: URL) async -> (key: Data?, iv: Data?, seqBase: Int64) {
+        var outKey = key, outIV = iv, outSeq = seqBaseIn
+        for raw in playlist.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            let up = line.uppercased()
+            if up.hasPrefix("#EXT-X-MEDIA-SEQUENCE") { outSeq = Int64(line.split(separator: ":").last ?? "") ?? 0; continue }
+            guard up.hasPrefix("#EXT-X-KEY") else { continue }
+            let method = HTML.groups("METHOD\\s*=\\s*([A-Za-z0-9-]+)", line).map { $0[1].uppercased() } ?? "AES-128"
+            guard method == "AES-128" else { return (outKey, outIV, outSeq) }   // NONE/SAMPLE-AES 不处理
+            if outIV == nil, let m = HTML.groups("IV\\s*=\\s*(?:0[xX])?([0-9a-fA-F]{32})", line),
+               let k = Bytes.fromHex(m[1]), k.count == 16 { outIV = Data(k) }
+            if outKey == nil, let m = HTML.groups("URI\\s*=\\s*\"([^\"]+)\"", line),
+               let u = URL(string: m[1], relativeTo: base)?.absoluteURL {
+                var r = URLRequest(url: u)
+                for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
+                if r.value(forHTTPHeaderField: "User-Agent") == nil { r.setValue(SiteHTTP.userAgent, forHTTPHeaderField: "User-Agent") }
+                if let (d, resp) = try? await session.data(for: r), (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false,
+                   d.count == 16 { outKey = d }
+            }
+            return (outKey, outIV, outSeq)   // 只看第一组密钥（黄果是整集单密钥）
+        }
+        return (outKey, outIV, outSeq)
+    }
+
+    /// 分片出站前解密。密钥未就绪 / 解密失败时原样返回（保守：不因解密异常放大故障）。
+    private static func aesIfEnabled(_ data: Data, route: Route, url: String) -> Data {
+        guard let key = route.aesKey else { return data }
+        let iv: Data
+        if let v = route.aesIV { iv = v }
+        else if let s = route.segSeq[url] { iv = Data(repeating: 0, count: 8) + withUnsafeBytes(of: s.bigEndian) { Data($0) } }
+        else { return data }
+        guard let out = aesCBCDecrypt(data, key: key, iv: iv) else { return data }
+        return out
+    }
+
+    /// HLS AES-128：CBC + PKCS7（每条分片独立填充）。
+    static func aesCBCDecrypt(_ data: Data, key: Data, iv: Data) -> Data? {
+        guard key.count == kCCKeySizeAES128, iv.count == kCCBlockSizeAES128,
+              !data.isEmpty, data.count % kCCBlockSizeAES128 == 0 else { return nil }
+        var out = Data(count: data.count + kCCBlockSizeAES128)
+        var moved = 0
+        let status = key.withUnsafeBytes { kb -> CCCryptorStatus in
+            let k = kb.bindMemory(to: UInt8.self).baseAddress!
+            return iv.withUnsafeBytes { ib -> CCCryptorStatus in
+                let i = ib.bindMemory(to: UInt8.self).baseAddress!
+                return data.withUnsafeBytes { db -> CCCryptorStatus in
+                    let d = db.bindMemory(to: UInt8.self).baseAddress!
+                    return out.withUnsafeMutableBytes { ob -> CCCryptorStatus in
+                        let o = ob.bindMemory(to: UInt8.self).baseAddress!
+                        return CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
+                                       k, key.count, i, d, data.count, o, out.count, &moved)
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess, moved > 0 else { return nil }
+        out.removeSubrange(moved..<out.count)
+        return out
     }
 
     // MARK: Helpers
