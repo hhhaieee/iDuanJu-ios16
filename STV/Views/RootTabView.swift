@@ -92,3 +92,44 @@ struct GlassTabBar: View {
         .padding(.bottom, 4)
     }
 }
+
+/// UIKit 层全局兜底：找到任何 UITabBar 实例就强制隐藏并禁止交互。
+/// App 的底部导航是自定义玻璃胶囊（GlassTabBar），系统 TabBar 永远不该出现。
+/// `.toolbar(.hidden, for: .tabBar)` 在 iOS 16 上有时序 bug——push 二级页面时 TabBar 占位
+/// 偶发残留：详情页底部出现一条空白、点上去正好落在透明 TabBar 的按钮上触发切 tab，
+/// 播放器画面也会被这条占位挤得底部留黑条（横竖屏随机出现）。这里定时扫描整棵视图树，
+/// 任何冒出来的 TabBar 一律 isHidden + isUserInteractionEnabled=false。
+struct TabBarHider: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView { HiderView() }
+    func updateUIView(_ uiView: UIView, context: Context) { HiderView.hideTabBars(from: uiView) }
+
+    final class HiderView: UIView {
+        private var timer: Timer?
+        init() {
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+            let t = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                Self.hideTabBars(from: self)
+            }
+            RunLoop.main.add(t, forMode: .common)
+            timer = t
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        deinit { timer?.invalidate() }
+
+        static func hideTabBars(from start: UIView) {
+            var root: UIView = start
+            while let p = root.superview { root = p }   // 顶到 UIWindow
+            var queue: [UIView] = [root]
+            while let cur = queue.popLast() {
+                if let bar = cur as? UITabBar, !bar.isHidden || bar.isUserInteractionEnabled {
+                    bar.isHidden = true
+                    bar.isUserInteractionEnabled = false
+                }
+                queue.append(contentsOf: cur.subviews)
+            }
+        }
+    }
+}
