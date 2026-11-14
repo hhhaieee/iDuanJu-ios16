@@ -334,24 +334,35 @@ struct PlayerScreen: View {
                     .coordinateSpace(name: "feed")
                     .scrollIndicators(.hidden)
                     .onPreferenceChange(ScrollOffsetKey.self) { minY in
-                        let y = -minY
+                        let rawY = -minY
+                        let pageHeight = geo.size.height
+                        // 边界锁：上滑只进下一集、下滑只进上一集；第一集不能再下滑、最后一集不能再
+                        // 上滑（没有上/下集就滑不动，不露出封面占位或黑边）。越界即拉回边界页。
+                        let maxY = CGFloat(max(0, co.episodes.count - 1)) * max(pageHeight, 1)
+                        let y = min(max(rawY, 0), maxY)
+                        if y != rawY {
+                            feedScrollY = y
+                            proxy.scrollTo(y == 0 ? 0 : co.episodes.count - 1, anchor: .top)
+                            return
+                        }
                         feedScrollY = y
                         guard feedInitialized else { return }
                         feedSettleWork?.cancel()
                         let work = DispatchWorkItem {
                             let pageHeight = geo.size.height
                             guard pageHeight > 0 else { return }
-                            let idx = Int(round(y / pageHeight))
-                            if idx >= 0, idx < co.episodes.count, idx != co.current {
+                            let idx = min(max(Int(round(y / pageHeight)), 0), max(0, co.episodes.count - 1))
+                            if idx != co.current {
                                 co.select(idx)
+                                withAnimation { proxy.scrollTo(idx, anchor: .top) }
+                            } else {
+                                // 停在半页（没过半回弹）也吸附回整页，避免视频层与页面错位。
                                 withAnimation { proxy.scrollTo(idx, anchor: .top) }
                             }
                             // 兜底：iOS 16 的 scrollTo 有时落不了地，feedScrollY 停在上次位置会把
                             // 视频层整屏推出可视区（有声音、画面全黑）。滚动停止后强制对齐到目标页。
-                            if idx >= 0, idx < co.episodes.count {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    if co.current == idx { feedScrollY = CGFloat(idx) * pageHeight }
-                                }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                if co.current == idx { feedScrollY = CGFloat(idx) * pageHeight }
                             }
                         }
                         feedSettleWork = work
