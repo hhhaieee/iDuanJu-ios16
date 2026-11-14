@@ -346,6 +346,13 @@ struct PlayerScreen: View {
                                 co.select(idx)
                                 withAnimation { proxy.scrollTo(idx, anchor: .top) }
                             }
+                            // 兜底：iOS 16 的 scrollTo 有时落不了地，feedScrollY 停在上次位置会把
+                            // 视频层整屏推出可视区（有声音、画面全黑）。滚动停止后强制对齐到目标页。
+                            if idx >= 0, idx < co.episodes.count {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    if co.current == idx { feedScrollY = CGFloat(idx) * pageHeight }
+                                }
+                            }
                         }
                         feedSettleWork = work
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
@@ -356,6 +363,14 @@ struct PlayerScreen: View {
                         if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
                         lastShownCurrent = new
                         releaseHeldIfSettled()
+                        // 兜底：换集后把画面层对齐到目标页。iOS 16 上 scrollTo 可能不生效，
+                        // feedScrollY 停留在旧集会让视频层整屏偏出（有声音、画面全黑）。
+                        if let new, co.episodes.indices.contains(new) {
+                            let ph = geo.size.height
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                if co.current == new, ph > 0 { feedScrollY = CGFloat(new) * ph }
+                            }
+                        }
                         // 初始定位的 scrollTo 落地后再开始响应手势滚动，避免初始 y=0 把选集拉回第一集。
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feedInitialized = true }
                     }
@@ -377,7 +392,13 @@ struct PlayerScreen: View {
     /// Offset of page `index` from rest (portrait), capped at one page either way.
     private func pageDrift(_ index: Int, page: CGFloat) -> CGFloat {
         guard !landscape, page > 0 else { return 0 }
-        return max(-page, min(page, feedScrollY - CGFloat(index) * page))
+        let raw = feedScrollY - CGFloat(index) * page
+        // iOS 16 的 ScrollView 在 scrollTo 没能真正落地时，feedScrollY 会停在上一次的位置，
+        // raw 变成整页 / 跨页的错位值 → 视频层被整屏推出可视区，表现就是「有声音、画面全黑」。
+        // 横屏不走 pageDrift（guard !landscape），所以横屏画面正常。这类失效偏移一律归零。
+        if abs(raw) > page + 4 { return 0 }
+        if abs(raw - (raw / page).rounded() * page) < 1.5 { return 0 }   // 页边界（含静止）本就应归位
+        return max(-page, min(page, raw))
     }
 
     private func stage(_ i: Int) -> some View {

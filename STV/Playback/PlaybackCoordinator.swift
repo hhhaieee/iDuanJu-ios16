@@ -570,11 +570,6 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         // 在 iOS 16 都是成熟路径，避免该黑屏。iOS 17+ 仍走 AetherEngine。
         if #available(iOS 17.0, *) {
         } else if series.source == .hongguo {
-            // 红果 H.264 流仍走系统播放器（成熟路径）。但部分后期剧集只剩 HEVC 流，
-            // AVPlayer 硬解只出声音、画面全黑 → 交 AetherEngine（FFmpeg）软解，
-            // 失败时 playbackFailed 会自动回退系统播放器。
-            if let s = chosen[i], !Self.isH264(s), !aetherFailed.contains(i),
-               let a = aether, a.supports(src) { return a }
             return av
         }
         guard PlayerEngineSettings.preferred == .aether, !aetherFailed.contains(i),
@@ -656,19 +651,6 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         guard let (u, h) = target else { return }
     }
 
-    /// Explicit user quality preference wins; otherwise prefer H.264/AVC when the engine is the
-    /// system player (iOS 16 红果 HEVC 只出声不出画面), falling back to the best-ranked stream.
-    static func pickBestStream(_ streams: [HGStream], preferredId: String?, h264First: Bool) -> HGStream? {
-        if let id = preferredId, let s = streams.first(where: { $0.id == id }) { return s }
-        if h264First, let s = streams.first(where: { isH264($0) }) { return s }
-        return streams.first
-    }
-
-    private static func isH264(_ s: HGStream) -> Bool {
-        let c = (s.codec ?? "").lowercased()
-        return c.contains("264") || c.contains("avc")
-    }
-
     private func prepare(_ i: Int) async throws -> Source {
         if let source = prepared[i] {
             if case .file(let url) = source, !FileManager.default.fileExists(atPath: url.path) {
@@ -687,13 +669,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
             if stream == nil {
                 let r = try await Catalog.resolve(series, ep)
                 if let e = r.err, r.streams.isEmpty { throw ProviderError.upstream(e) }
-                // iOS 16 红果强制走系统播放器（见 chooseEngine）；红果剧集后期换成了 HEVC/bytevc2 编码，
-                // AVPlayer 对这批流只出声音、画面全黑。没有用户显式画质偏好时优先挑 H.264/AVC 流。
-                let h264First: Bool = {
-                    if #available(iOS 17.0, *) { return false }
-                    return series.source == .hongguo
-                }()
-                guard let best = Self.pickBestStream(r.streams, preferredId: preferredId, h264First: h264First) else { throw ProviderError.upstream("没有可用的视频流") }
+                guard let best = r.streams.first(where: { $0.id == preferredId }) ?? r.streams.first else { throw ProviderError.upstream("没有可用的视频流") }
                 try Task.checkCancellation()
                 self?.streams[i] = r.streams
                 self?.chosen[i] = best

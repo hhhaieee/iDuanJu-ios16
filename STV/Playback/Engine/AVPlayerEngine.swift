@@ -49,16 +49,14 @@ import UIKit
         guard let item = PlaybackCoordinator.makeItem(src) else { throw URLError(.badURL) }
         item.nowPlayingInfo = [MPMediaItemPropertyTitle: title]
         audioGroup = nil; legibleGroup = nil; audioTracks = []; subtitleTracks = []; selectedAudio = nil; selectedSubtitle = nil
+        // iOS 16 的已知系统 bug：AVPictureInPictureController(playerLayer:) 接管该 layer 的渲染
+        // 上下文后，replaceCurrentItem 会让 inline layer 与 player 的绑定失效——音频正常、画面黑屏
+        // （画中画窗口却正常）。必须在**换 item 之前**先解绑 player，换完再绑回，inline 渲染才会
+        // 跟着新 item 走。（顺序反了无效，这正是「除第一集外全部黑屏」的成因之一。）
+        // 画中画激活中不解绑，避免打断画中画窗口。
+        if #unavailable(iOS 17.0), !pipActive { view.playerLayer.player = nil }
         player.replaceCurrentItem(with: item)
-        if #unavailable(iOS 17.0), !pipActive {
-            // iOS 16 的已知系统 bug：AVPictureInPictureController(playerLayer:) 接管该 layer 的渲染
-            // 上下文后，replaceCurrentItem 会让 inline layer 与 player 的绑定失效——音频正常、画面黑屏
-            // （画中画窗口却正常）。重建绑定强制 inline 渲染恢复。画中画激活中不重建，避免打断画中画窗口。
-            let layer = view.playerLayer
-            let p = player
-            layer.player = nil
-            layer.player = p
-        }
+        if #unavailable(iOS 17.0), !pipActive { view.playerLayer.player = player }
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
                 guard let self, self.generation == gen, item.status == .failed else { return }
