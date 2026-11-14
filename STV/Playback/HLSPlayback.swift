@@ -53,17 +53,22 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
         var r = URLRequest(url: real)
         for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
         session.dataTask(with: r) { [weak self] data, resp, err in
-            // 返回/切季时 AVPlayer 会取消所有 pending 的 resource 请求，回调晚到时
-            // 再 finish 会抛 NSException（SIGABRT）。STVFinishLoading 内部做取消/完成检查 + @try/@catch 兜底。
+            // 网络请求保持并发（多段 m3u8/密钥同时拉取，避免串行化拖慢响应被 AVPlayer 超时取消），
+            // 但"结束请求"必须串行化：AVAssetResourceLoader 的请求有严格完成顺序，并发 finish 会
+            // 让 AVPlayer 的资源状态机卡住（表现为一直转圈、进度停在 0:00）。回到 stv.hls.loader
+            // 队列上顺序 finish，STVFinishLoading 内部再做取消/完成检查 + @try/@catch 兜底。
             guard let self, let data, err == nil, (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
-                STVFinishLoading(req, err ?? URLError(.badServerResponse)); return
+                self.queue.async { STVFinishLoading(req, err ?? URLError(.badServerResponse)) }
+                return
             }
             let text = self.rewrite(HLSAdFilter.apply(String(decoding: data, as: UTF8.self), base: real), base: real)
-            guard !req.isCancelled && !req.isFinished else { return }
-            req.contentInformationRequest?.contentType = "public.m3u-playlist"
-            req.contentInformationRequest?.contentLength = Int64(text.utf8.count)
-            req.dataRequest?.respond(with: Data(text.utf8))
-            STVFinishLoading(req, nil)
+            self.queue.async {
+                guard !req.isCancelled && !req.isFinished else { return }
+                req.contentInformationRequest?.contentType = "public.m3u-playlist"
+                req.contentInformationRequest?.contentLength = Int64(text.utf8.count)
+                req.dataRequest?.respond(with: Data(text.utf8))
+                STVFinishLoading(req, nil)
+            }
         }.resume()
         return true
     }

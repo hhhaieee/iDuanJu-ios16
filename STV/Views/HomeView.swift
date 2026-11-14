@@ -38,7 +38,19 @@ enum HomeSource: Hashable, Identifiable {
     case manga
     /// 小说 (NovelHomeView: local TXT / EPUB bookshelf).
     case novel
-    var id: String { label }
+    var id: String { sortKey }
+    /// 稳定排序键（用户自定义首页片源顺序时持久化用）。
+    var sortKey: String {
+        switch self {
+        case .hongguo: "hongguo"
+        case .huangguo: "huangguo"
+        case .ai: "ai"
+        case .site(let s): "site." + s.rawValue
+        case .channels: "channels"
+        case .manga: "manga"
+        case .novel: "novel"
+        }
+    }
     var label: String {
         switch self {
         case .hongguo: "红果"
@@ -61,8 +73,24 @@ enum HomeSource: Hashable, Identifiable {
     }
     @MainActor static var all: [HomeSource] {
         let g = SourceGate.shared
-        return [.hongguo] + (g.showHuangguo ? [.huangguo] : []) + [.ai] + g.visibleSites.map { .site($0) } + [.channels, .manga, .novel]
+        let base = [.hongguo] + (g.showHuangguo ? [.huangguo] : []) + [.ai] + g.visibleSites.map { .site($0) } + [.channels, .manga, .novel]
+        // 用户自定义顺序（片源管理 → 首页片源顺序）；未排序的项（新开的片源）按默认顺序追加到末尾。
+        let order = HomeSourceOrder.shared.keys
+        guard !order.isEmpty else { return base }
+        let ordered = order.compactMap { key in base.first { $0.sortKey == key } }
+        let rest = base.filter { s in !order.contains(s.sortKey) }
+        return ordered + rest
     }
+}
+
+/// 首页片源标签的自定义排列顺序（片源管理 → 首页片源顺序里拖动调整）。
+@MainActor
+final class HomeSourceOrder: ObservableObject {
+    static let shared = HomeSourceOrder()
+    @Published private(set) var keys: [String] = []
+    private let d = UserDefaults.standard
+    private init() { keys = d.stringArray(forKey: "stv.home.order") ?? [] }
+    func save(_ ks: [String]) { keys = ks; d.set(ks, forKey: "stv.home.order") }
 }
 
 /// Caches the first page of each rank board for the home cards.

@@ -20,6 +20,11 @@ struct SourcesView: View {
                     group("内置") {
                         builtinRow(.hongguo, "play.rectangle.on.rectangle")
                     }
+                    group("首页片源顺序") {
+                        NavigationLink(value: Route.homeSourceOrder) {
+                            HStack { label("调整首页标签顺序", "arrow.up.arrow.down", sub: "拖动调整红果、黄果、AI剧及各片源在首页顶部标签的排列顺序"); Spacer(); chevron }.padding(14)
+                        }.buttonStyle(.plain).accessibilityIdentifier("sources.homeOrder")
+                    }
                     group("18+ 片源（默认隐藏）") {
                         Toggle(isOn: Binding(get: { gate.huangguo }, set: { gate.setHuangguo($0) })) {
                             label(DramaSource.huangguo.label, "film.stack", sub: "18+ · 视频站 / App 源 / AI 站；开启后出现在「发现」「搜索」和 AI剧")
@@ -189,6 +194,50 @@ struct SourcesView: View {
 
     private func actionRow(_ t: String, _ icon: String, _ action: @escaping () async -> Void) -> some View {
         Button { Task { await action() } } label: { HStack { label(t, icon); Spacer(); chevron }.padding(14) }.buttonStyle(.plain)
+    }
+}
+
+/// 首页片源顺序调整（片源管理 → 首页片源顺序）：拖动右侧手柄排序，即时持久化。
+struct HomeSourceOrderView: View {
+    @State private var items: [HomeSource] = []
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(items) { s in
+                    HStack(spacing: 12) {
+                        Image(systemName: Self.icon(s)).frame(width: 24).foregroundStyle(STVTheme.text)
+                        Text(s.label).foregroundStyle(STVTheme.text)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                }
+                .onMove { from, to in
+                    items.move(fromOffsets: from, toOffset: to)
+                    HomeSourceOrder.shared.save(items.map(\.sortKey))
+                }
+            } footer: {
+                Text("拖动右侧手柄调整首页顶部片源标签的顺序。改动即时保存，返回首页即可看到新顺序。")
+                    .font(.caption).foregroundStyle(STVTheme.secondary)
+            }
+        }
+        .environment(\.editMode, .constant(.active))
+        .scrollContentBackground(.hidden)
+        .background(STVTheme.bg.ignoresSafeArea())
+        .navigationTitle("首页片源顺序")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { items = HomeSource.all }
+    }
+
+    static func icon(_ s: HomeSource) -> String {
+        switch s {
+        case .hongguo, .huangguo: "play.rectangle.fill"
+        case .ai: "sparkles"
+        case .site: "globe"
+        case .channels: "paperplane.fill"
+        case .manga: "book.fill"
+        case .novel: "text.book.closed.fill"
+        }
     }
 }
 
