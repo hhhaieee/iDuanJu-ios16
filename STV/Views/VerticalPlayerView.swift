@@ -77,10 +77,9 @@ struct PlayerScreen: View {
         return series.orientation == "portrait" || (!series.source.isLongVideo && series.orientation != "landscape") ? 9.0 / 16 : 16.0 / 9
     }
 
-    /// Where the player layer lives. Portrait + landscape-shaped video: the area above the bottom block
-    /// (design v3: video centred in the top H−156 pt); otherwise the whole screen.
+    /// Where the player layer lives — always the whole screen. `videoRect(_:)` handles fit/fill centring,
+    /// so a landscape video letterboxes centred instead of hugging the top edge with a dead 156 pt block below.
     private func videoArea(_ full: CGSize) -> CGRect {
-        if !landscape, aspect > 1, !fillScreen { return CGRect(x: 0, y: 0, width: full.width, height: max(200, full.height - 156)) }
         return CGRect(origin: .zero, size: full)
     }
 
