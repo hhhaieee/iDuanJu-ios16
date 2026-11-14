@@ -52,6 +52,9 @@ struct STVApp: App {
                 }
             }
             .tint(STVTheme.accent)
+            // 全局隐藏底部白色 Home 指示条（首页/播放页都需要；上滑手势仍会临时唤醒，松手后继续隐藏）。
+            .persistentSystemOverlays(.hidden)
+            .background(HomeIndicatorAutoHidden())
             .task {
                 await CFCookies.restoreFromWebKit()
                 #if DEBUG
