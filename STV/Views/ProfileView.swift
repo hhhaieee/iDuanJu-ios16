@@ -4,6 +4,7 @@ struct ProfileView: View {
     @State private var message: String?
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var gate = SourceGate.shared
+    @ObservedObject private var proxy = ProxySettings.shared
 
     var body: some View {
         ScrollView {
@@ -37,6 +38,8 @@ struct ProfileView: View {
                 VStack(spacing: 0) {
                     link("片源管理", "square.stack.3d.down.right", .sources,
                          trailing: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : "红果 · 黄果")
+                    link("网络代理", "network", .sources, trailing: proxy.enabled ? "已开启" : "未开启")
+                    link("首页片源顺序", "arrow.up.arrow.down", .homeSourceOrder)
                     link("插件", "puzzlepiece.extension", .plugins, trailing: pluginTrailing)
                     link("开源许可", "doc.text", .licenses)
                 }
