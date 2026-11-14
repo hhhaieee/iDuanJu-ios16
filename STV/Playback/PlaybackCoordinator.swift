@@ -700,6 +700,12 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
                 return .remote(u, s.headers)
             case .mp4Clear, .hls, .hlsAES:
                 let budget = bypass ? 0 : BufferSettings.budget(for: series.source)
+                // AES-128 HLS（黄果）：无条件走本地代理 + 分片解密。resourceLoader 提供密钥的老路径在
+                // iOS16 上会触发密钥请求超时（CoreMediaErrorDomain -19152），代理拿到 playlist 后直接
+                // 解密分片，AVPlayer 看到的是明文 HLS。代理起不来才回退 resourceLoader。
+                if s.kind == .hlsAES, !bypass,
+                   let p = LocalHLSProxy.shared.playlistURL(s.url, headers: s.headers, strip: false, budget: budget, aesKey: s.key),
+                   let u = URL(string: p) { return .direct(u) }
                 if budget > 0, let proxied = await self?.prebuffered(s, budget: budget, index: i) { return proxied }
                 if viaAether, s.kind != .mp4Clear, s.key.isEmpty {
                     // Aether hands HLS to AVPlayer on a URL: keep our playlist rewriting (ad-strip, headers,
@@ -730,7 +736,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         let proxied: String?
         switch s.kind {
         case .hls: proxied = LocalHLSProxy.shared.playlistURL(s.url, headers: s.headers, strip: false, budget: budget)
-        case .hlsAES where s.key.isEmpty: proxied = LocalHLSProxy.shared.playlistURL(s.url, headers: s.headers, strip: false, budget: budget)
+        case .hlsAES: proxied = LocalHLSProxy.shared.playlistURL(s.url, headers: s.headers, strip: false, budget: budget, aesKey: s.key)
         case .mp4Clear: proxied = LocalHLSProxy.shared.mp4URL(s.url, headers: s.headers, budget: budget)
         default: proxied = nil
         }
