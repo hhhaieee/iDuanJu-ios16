@@ -6,6 +6,11 @@ struct STVApp: App {
     init() {
         CrashReporter.install()
         CFSolver.install()
+        // 底部导航用的是自定义玻璃胶囊（GlassTabBar），系统 TabBar 永远不该出现。
+        // 仅靠 .toolbar(.hidden, for: .tabBar) 在 iOS 16 上不可靠：push 详情页等页面时
+        // TabBar 占位会偶发残留——表现为底部一条空白、点上去正好落在透明 TabBar 的按钮上
+        // 触发切 tab、播放器画面也被这条占位挤得底部留黑条。窗口根部挂 TabBarHider
+        // （UIKit 层强隐藏 + 禁点，定时兜底扫描），见 RootTabView.swift。
         // Load plugin / 采集站 indexes before anything reads `Sites.all` or `SourceGate`.
         MainActor.assumeIsolated { _ = CMSStore.shared; _ = PluginStore.shared }
     }
@@ -67,6 +72,7 @@ struct STVApp: App {
                 #endif
             }
             .background(STVTheme.bg)
+            .background(TabBarHider())
         }
     }
 }
