@@ -25,7 +25,9 @@ struct PlayerScreen: View {
     @State private var seasons: [HGSeries] = []
     @ObservedObject private var danmaku = DanmakuSettings.shared
     /// 画面铺满 (aspectFill) vs 完整自适应 (aspect) — hongguo-open-player fitMode.
-    @AppStorage("stv.player.fill") private var fillScreen = false
+    /// 默认铺满：自适应模式下横屏视频四周露黑边，用户看到的是一条"一直不消失的黑色挡板"。
+    /// 播放器菜单里仍可一键切回"完整自适应"。
+    @AppStorage("stv.player.fill") private var fillScreen = true
     /// Technical info strip (⋯ → 技术信息).
     @AppStorage("stv.player.tech") private var showTech = true
     @State private var muted = false
