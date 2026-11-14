@@ -23,15 +23,20 @@ actor HuangguoClient {
     static let shared = HuangguoClient()
 
     static let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1"
-    /// AI site mirrors. 黄果镜像域名会随风控频繁轮换：*.adihsppe.cc / *.ediayikma.cc 已全部失效，
-    /// 2026-11-14 当下存活的是 huangguoai.io / huangguoai.me 以及经发布页跳转的 *.bmikbxhi.cc 等。
-    /// 这里只放「已知可用的入口」，其余镜像靠 ensureAIBase 竞速 + learnMirrors 从 /go-home/ 动态发现。
+    /// AI site mirrors. 黄果镜像域名会随风控频繁轮换：*.adihsppe.cc / *.ediayikma.cc 已全部失效。
+    /// 2026-11-15 实测：huangguoai.io / jrnq2.bmikbxhi.cc 正常（首页含 hg-drama-card、/api/search 与
+    /// playback 均可用）；huangguoai.me 已变成官网中转页（无站点结构，故移出候选）；
+    /// huangguoai.com / .ai 是国内 DNS 污染（解析到 Facebook 段），真机网络下可能可用，保留在末尾。
+    /// 其余镜像靠 ensureAIBase 竞速 + learnMirrors 从 /go-home/ 动态发现。
     /// 把已知可用的镜像放在最前，避免竞速误选到返回 200 但结构已过期的旧镜像（曾导致「上游错误：HTTP 404」）。
-    static let aiMirrors = ["https://huangguoai.io", "https://huangguoai.me", "https://jrnq2.bmikbxhi.cc",
+    static let aiMirrors = ["https://huangguoai.io", "https://jrnq2.bmikbxhi.cc",
                             "https://huangguoai.com", "https://huangguoai.ai"]
     static let mirrorsKey = "stv.huangguo.aiMirrors"
     static let baseKey = "stv.huangguo.aiBase"
-    static let videoBase = "https://huangguo.video"
+    /// 2026-11-15：旧短剧站 huangguo.video 已彻底下线（DNS 不解析），官方把短剧站统一到 huangguoai.*
+    /// （官网 huangguoai.me 的“前往短剧站”指向 huangguoai.com，另有漫剧站 huangguoac.com）。
+    /// 新站与 AI 站是同一套页面/接口，因此 video 子源直接复用 AI 的解析与取流，见 detail/resolve 的 .video 分支。
+    static let videoBase = "https://huangguoai.io"
     static let frontendURL = "https://d2pypzndaqisk.cloudfront.net"
     static let apiHosts = ["https://dr6skssi3nxbk.cloudfront.net", "https://d18ka9rqpfd3lo.cloudfront.net", "https://d37n0wjehmw08f.cloudfront.net"]
     static let cdnURL = "https://sjljsla.lkkwip.cn"
@@ -48,8 +53,10 @@ actor HuangguoClient {
         .init(sub: .ai, slug: "ai-manju", title: "AI漫剧", isRank: false),
         .init(sub: .ai, slug: "ai-mogai", title: "AI魔改", isRank: false),
     ]
-    static let videoChannels: [HuangguoChannel] = (0...4).map {
-        .init(sub: .video, slug: String($0), title: ["全部", "MV/音乐剧", "短片", "连续剧", "片段"][$0], isRank: false)
+    /// 2026-11-15：旧视频站分类（/videos?category=0…4）随站点下线已 404。新短剧站的分类语义就是
+    /// AI 站那一套（推荐/上新/热播/AI短剧/AI漫剧…），这里沿用同一份分类，list 时转发给 AI 逻辑。
+    static let videoChannels: [HuangguoChannel] = aiChannels.map {
+        .init(sub: .video, slug: $0.slug, title: $0.title, isRank: $0.isRank)
     }
 
     private let session: URLSession = {
@@ -170,12 +177,8 @@ actor HuangguoClient {
             let items = parseAICards(try await text(u, referer: base + "/"), pageURL: u)
             return HGPage(items: items, hasMore: !items.isEmpty, nextOffset: page + 1)
         case .video:
-            var q: [String] = []
-            if ch.slug != "0" { q.append("category=\(ch.slug)") }
-            if page > 1 { q.append("page=\(page)") }
-            let u = Self.videoBase + "/videos" + (q.isEmpty ? "" : "?" + q.joined(separator: "&"))
-            let items = parseVideoCards(try await text(u, referer: Self.videoBase + "/"), pageURL: u)
-            return HGPage(items: items, hasMore: !items.isEmpty, nextOffset: page + 1)
+            // 旧 huangguo.video 的 /videos?category= 已下线；新短剧站分类与 AI 站一致，直接复用 AI 列表。
+            return try await list(HuangguoChannel(sub: .ai, slug: ch.slug, title: ch.title, isRank: ch.isRank), page: page)
         case .legacy:
             await ensureImageCDN()
             let obj = try await legacy("/api/app/playlet/home/tab/" + ch.slug,
@@ -206,14 +209,9 @@ actor HuangguoClient {
         var groups: [[HGSeries]] = [[], [], []]
         var errors: [String] = []
         await withTaskGroup(of: (Int, Result<[HGSeries], Error>).self) { g in
-            g.addTask { (0, await Self.attempt {
-                let page = Self.videoBase + "/search?q=" + enc
-                let h = try await self.text(page, referer: Self.videoBase + "/")
-                // Only the results section: the page also links trending titles elsewhere.
-                let body = h.range(of: "id=\"search-content\"").map { String(h[$0.lowerBound...]) } ?? h
-                let section = body.range(of: "</section>").map { String(body[..<$0.lowerBound]) } ?? body
-                return await self.parseVideoCards(section, pageURL: page)
-            }) }
+            // 0 号：旧视频站搜索随 huangguo.video 下线已不可用；新短剧站与 1 号 AI 任务是同一站点，
+            // 再搜一遍只会产生重复条目，因此这里不再发请求（历史 video:<id> 条目仍由 detail/resolve 兼容播放）。
+            g.addTask { (0, Result<[HGSeries], Error>.success([])) }
             g.addTask { (1, await Self.attempt {
                 let base = try await self.ensureAIBase()
                 var out: [HGSeries] = []
@@ -239,7 +237,7 @@ actor HuangguoClient {
         var seen = Set<String>()
         // Same rule as Android HuangguoClient.blocked: never return minors / non-consent titles.
         let hits = groups.joined().filter { !Self.blocked($0) && seen.insert($0.id).inserted }
-        if hits.isEmpty, errors.count == groups.count, let e = errors.first { throw ProviderError.upstream(e) }
+        if hits.isEmpty, errors.count >= groups.count - 1, let e = errors.first { throw ProviderError.upstream(e) }
         return hits
     }
 
@@ -260,13 +258,23 @@ actor HuangguoClient {
             return HGSeriesDetail(source: .huangguo, seriesId: s.seriesId, title: title, cover: Self.aiDetailCover(h, page: page, listCover: s.cover),
                                   desc: HTML.description(h), author: nil, actors: [], onlineTime: 0, totalEps: eps.count, episodes: eps)
         case .video:
-            let path = sid.hasPrefix("series/") || sid.hasPrefix("video/") ? sid : "series/" + sid
-            let page = Self.videoBase + "/" + path
-            let h = try await text(page, referer: Self.videoBase + "/")
-            var eps = path.hasPrefix("video/") ? [] : parseVideoEpisodes(h, pageURL: page)
-            if eps.isEmpty, let m = dataHLS(h, page) { eps = [HGEpisode(ep: 1, vid: "1", duration: 0, title: "第1集", page: page, media: m)] }
-            return HGSeriesDetail(source: .huangguo, seriesId: s.seriesId, title: HTML.pageTitle(h).nonEmpty ?? s.title,
-                                  cover: HTML.resolve(page, HTML.ogImage(h)).nonEmpty ?? s.cover, desc: HTML.description(h),
+            // 新短剧站（huangguoai.*）与 AI 站同构：详情页 /video/<id>/ 里是 videoInitialData + 每集 ep-N。
+            // 老结构（data-hls 一页列全集）留作兜底，兼容历史数据里的 video:<...> 条目。
+            let vid = Self.numericID(sid)
+            let base = try await ensureAIBase()
+            let page = "\(base)/video/\(vid)/"
+            let h = (try? await text(page, referer: base + "/")) ?? ""
+            var eps = h.isEmpty ? [] : parseAIEpisodes(h, pageURL: page, sourceID: vid)
+            if eps.isEmpty, !h.isEmpty, case let m = aiVideoURL(h, pageURL: page), !m.isEmpty {
+                eps = [HGEpisode(ep: 1, vid: "1", duration: 0, title: "第1集", page: page, media: m)]
+            }
+            if eps.isEmpty, !h.isEmpty, let m = dataHLS(h, page) {
+                eps = [HGEpisode(ep: 1, vid: "1", duration: 0, title: "第1集", page: page, media: m)]
+            }
+            return HGSeriesDetail(source: .huangguo, seriesId: s.seriesId,
+                                  title: (h.isEmpty ? nil : HTML.pageTitle(h).nonEmpty) ?? s.title,
+                                  cover: h.isEmpty ? s.cover : Self.aiDetailCover(h, page: page, listCover: s.cover),
+                                  desc: h.isEmpty ? "" : HTML.description(h),
                                   author: nil, actors: [], onlineTime: 0, totalEps: eps.count, episodes: eps)
         case .legacy:
             await ensureImageCDN()
@@ -322,8 +330,19 @@ actor HuangguoClient {
                 keyFetchHeaders.merge(cdn) { _, new in new }
             }
         case .video:
+            // 新短剧站与 AI 站同一套接口：优先用匿名 playback 取流（最稳），失败再回退页面 data-hls 老结构。
             referer = Self.videoBase + "/"
-            if media.isEmpty, let p = episode.page { media = dataHLS(try await text(p, referer: referer, ttl: 30), p) ?? "" }
+            let vid = Self.numericID(Self.split(seriesId).1)
+            if let base = try? await ensureAIBase(),
+               let pb = try? await aiPlayback(base: base, id: vid, ep: max(1, episode.ep), page: episode.page) {
+                referer = episode.page ?? base + "/video/\(vid)/"
+                headers["Origin"] = base
+                headers.merge(pb.cdn) { _, new in new }
+                keyFetchHeaders = ["User-Agent": Self.userAgent, "Origin": base]
+                media = pb.main
+            } else if media.isEmpty, let p = episode.page {
+                media = dataHLS(try await text(p, referer: referer, ttl: 30), p) ?? ""
+            }
         case .legacy:
             let a = try await legacyAccess()
             let base = try await apiBase()
@@ -380,6 +399,14 @@ actor HuangguoClient {
     static func split(_ ref: String) -> (HuangguoSub, String) {
         if let i = ref.firstIndex(of: ":"), let s = HuangguoSub(rawValue: String(ref[..<i])) { return (s, String(ref[ref.index(after: i)...])) }
         return (.ai, ref)
+    }
+
+    /// 取站点的纯数字 id："903" / "video/903" / "series/903" → "903"。
+    /// 旧视频站把 id 存成 video/<id>，新站（huangguoai.*）的接口只认纯数字。
+    static func numericID(_ s: String) -> String {
+        let last = s.split(separator: "/").last.map(String.init) ?? s
+        let digits = String(last.prefix { $0.isNumber })
+        return digits.isEmpty ? HTML.cleanID(last) : digits
     }
 
     // MARK: AI parsing
