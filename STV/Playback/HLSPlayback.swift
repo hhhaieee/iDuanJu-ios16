@@ -10,11 +10,17 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
     let headers: [String: String]
     let keyHex: String
     private let queue = DispatchQueue(label: "stv.hls.loader")
-    private let session = URLSession(configuration: .default)
+    /// dataTask 回调和 resourceLoader delegate 都跑在 `queue` 上（同一个串行队列），
+    /// 避免 `isCancelled`/`isFinished` 检查与 `finishLoading` 之间跨线程竞态。
+    private let session: URLSession
 
     init(headers: [String: String], keyHex: String) {
         self.headers = headers
         self.keyHex = keyHex
+        let op = OperationQueue()
+        op.underlyingQueue = queue
+        op.maxConcurrentOperationCount = 1
+        self.session = URLSession(configuration: .default, delegate: nil, delegateQueue: op)
     }
 
     func makeAsset(url: String) -> AVURLAsset? {
@@ -31,17 +37,17 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
         guard let url = req.request.url, let scheme = url.scheme else { return false }
         if scheme == Self.keyScheme {
             guard let key = Bytes.fromHex(keyHex), key.count == 16 else {
-                if !req.isCancelled && !req.isFinished { req.finishLoading(with: URLError(.userAuthenticationRequired)) }
+                STVFinishLoading(req, URLError(.userAuthenticationRequired))
                 return true
             }
             // 请求可能在回调执行前已被取消（返回/切换视频），此时 finish 会触发 AVFoundation 异常崩溃。
-            if !req.isCancelled && !req.isFinished {
-                req.contentInformationRequest?.contentType = "public.data"
-                req.contentInformationRequest?.contentLength = 16
-                req.contentInformationRequest?.isByteRangeAccessSupported = false
-                req.dataRequest?.respond(with: Data(key))
-                req.finishLoading()
-            }
+            // STVFinishLoading 内部做 isCancelled/isFinished 检查 + @try/@catch 兜底。
+            guard !req.isCancelled && !req.isFinished else { return true }
+            req.contentInformationRequest?.contentType = "public.data"
+            req.contentInformationRequest?.contentLength = 16
+            req.contentInformationRequest?.isByteRangeAccessSupported = false
+            req.dataRequest?.respond(with: Data(key))
+            STVFinishLoading(req, nil)
             return true
         }
         guard scheme.hasPrefix(Self.plScheme), var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
@@ -51,16 +57,16 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
         for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
         session.dataTask(with: r) { [weak self] data, resp, err in
             // 返回/切季时 AVPlayer 会取消所有 pending 的 resource 请求，回调晚到时
-            // 再 finish 会抛 NSException（SIGABRT）。先做取消/完成防御检查。
-            guard !req.isCancelled && !req.isFinished else { return }
+            // 再 finish 会抛 NSException（SIGABRT）。STVFinishLoading 内部做取消/完成检查 + @try/@catch 兜底。
             guard let self, let data, err == nil, (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
-                req.finishLoading(with: err ?? URLError(.badServerResponse)); return
+                STVFinishLoading(req, err ?? URLError(.badServerResponse)); return
             }
             let text = self.rewrite(HLSAdFilter.apply(String(decoding: data, as: UTF8.self), base: real), base: real)
+            guard !req.isCancelled && !req.isFinished else { return }
             req.contentInformationRequest?.contentType = "public.m3u-playlist"
             req.contentInformationRequest?.contentLength = Int64(text.utf8.count)
             req.dataRequest?.respond(with: Data(text.utf8))
-            req.finishLoading()
+            STVFinishLoading(req, nil)
         }.resume()
         return true
     }

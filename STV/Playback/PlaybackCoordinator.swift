@@ -559,6 +559,14 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     /// Aether unless the user chose the system player, the source needs AVPlayer (resource-loader AES,
     /// FairPlay), Aether could not be created, or it already failed on this episode.
     private func chooseEngine(_ i: Int, _ src: Source) -> PlayerEngine {
+        // iOS 16 上 AetherEngine 6.89.1 的 native 路径（AVPlayerLayer 渲染）与
+        // AVPictureInPictureController(playerLayer:) 共存时，inline 播放黑屏（画中画窗口正常）。
+        // 红果 CENC 解密后的 loopback MP4 改用系统播放器：AVPlayer 的 inline 渲染与画中画
+        // 在 iOS 16 都是成熟路径，避免该黑屏。iOS 17+ 仍走 AetherEngine。
+        if #available(iOS 17.0, *) {
+        } else if series.source == .hongguo {
+            return av
+        }
         guard PlayerEngineSettings.preferred == .aether, !aetherFailed.contains(i),
               let a = aether, a.supports(src) else { return av }
         return a
