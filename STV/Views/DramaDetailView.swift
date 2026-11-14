@@ -68,6 +68,7 @@ struct DramaDetailView: View {
         .ignoresSafeArea(edges: .top)
         .background(STVTheme.bg.ignoresSafeArea())
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .navigationBarTitleDisplayMode(.inline)
         .zoomDestination(series.id, ns)
         .task {
