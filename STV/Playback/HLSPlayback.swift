@@ -10,17 +10,14 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
     let headers: [String: String]
     let keyHex: String
     private let queue = DispatchQueue(label: "stv.hls.loader")
-    /// dataTask 回调和 resourceLoader delegate 都跑在 `queue` 上（同一个串行队列），
-    /// 避免 `isCancelled`/`isFinished` 检查与 `finishLoading` 之间跨线程竞态。
-    private let session: URLSession
+    /// dataTask 回调走 URLSession 默认并发队列；`isCancelled`/`isFinished` 与 `finish` 之间的
+    /// 竞态由 STVFinishLoading 的 @try/@catch 兜底。不用串行 delegateQueue：串行化会拖慢
+    /// 多段 m3u8/密钥的响应，iOS 16 上 AVPlayer 可能超时取消请求 → CoreMediaErrorDomain 9152。
+    private let session = URLSession(configuration: .default)
 
     init(headers: [String: String], keyHex: String) {
         self.headers = headers
         self.keyHex = keyHex
-        let op = OperationQueue()
-        op.underlyingQueue = queue
-        op.maxConcurrentOperationCount = 1
-        self.session = URLSession(configuration: .default, delegate: nil, delegateQueue: op)
     }
 
     func makeAsset(url: String) -> AVURLAsset? {

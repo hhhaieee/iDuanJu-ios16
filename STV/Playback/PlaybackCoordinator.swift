@@ -476,9 +476,14 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         save(force: true)
         let token = UUID()
         activation = token
-        if let r = readyIndex, heldFrame == nil, let img = Self.snapshot(engine.surface) { heldFrame = (img, r) }
+        // AVPlayer 的 surface 是 AVPlayerLayer，drawHierarchy 捕获不到视频帧，快照恒为黑屏；
+        // 用它做 heldFrame 会让切集时黑屏盖住新画面。AVPlayer 切集直接放空（短暂黑屏），
+        // Aether 的 Metal/sample-buffer 层仍用快照过渡。
+        if let r = readyIndex, heldFrame == nil, engineKind != .avplayer, let img = Self.snapshot(engine.surface) { heldFrame = (img, r) }
         readyIndex = nil
-        engine.pause()
+        // PiP 连播：上一集已播完（DidPlayToEndTime），无需再 pause。iOS 16 上 pause 会让
+        // 画中画窗口停止，随后的 replaceCurrentItem + play 无法可靠地让窗口恢复播放。
+        if !pipActive { engine.pause() }
         time = 0; loadedUntil = 0
         duration = Double(episodes[i].duration)
         for k in tasks.keys where k != i && k != i + 1 {
