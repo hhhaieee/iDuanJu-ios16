@@ -73,12 +73,17 @@ enum HomeSource: Hashable, Identifiable {
     }
     @MainActor static var all: [HomeSource] {
         let g = SourceGate.shared
-        let base = [.hongguo] + (g.showHuangguo ? [.huangguo] : []) + [.ai] + g.visibleSites.map { .site($0) } + [.channels, .manga, .novel]
+        // 拆成多步并显式标注类型：单一长链表达式会让 Swift 5 类型推断超时。
+        var base: [HomeSource] = [.hongguo]
+        if g.showHuangguo { base.append(.huangguo) }
+        base.append(.ai)
+        base.append(contentsOf: g.visibleSites.map { HomeSource.site($0) })
+        base.append(contentsOf: [.channels, .manga, .novel])
         // 用户自定义顺序（片源管理 → 首页片源顺序）；未排序的项（新开的片源）按默认顺序追加到末尾。
-        let order = HomeSourceOrder.shared.keys
+        let order: [String] = HomeSourceOrder.shared.keys
         guard !order.isEmpty else { return base }
-        let ordered = order.compactMap { key in base.first { $0.sortKey == key } }
-        let rest = base.filter { s in !order.contains(s.sortKey) }
+        let ordered: [HomeSource] = order.compactMap { key in base.first { $0.sortKey == key } }
+        let rest: [HomeSource] = base.filter { s in !order.contains(s.sortKey) }
         return ordered + rest
     }
 }

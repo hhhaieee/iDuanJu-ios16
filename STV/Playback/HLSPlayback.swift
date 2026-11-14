@@ -57,7 +57,8 @@ final class HLSPlayback: NSObject, AVAssetResourceLoaderDelegate {
             // 但"结束请求"必须串行化：AVAssetResourceLoader 的请求有严格完成顺序，并发 finish 会
             // 让 AVPlayer 的资源状态机卡住（表现为一直转圈、进度停在 0:00）。回到 stv.hls.loader
             // 队列上顺序 finish，STVFinishLoading 内部再做取消/完成检查 + @try/@catch 兜底。
-            guard let self, let data, err == nil, (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
+            guard let self else { return }
+            guard let data, err == nil, (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
                 self.queue.async { STVFinishLoading(req, err ?? URLError(.badServerResponse)) }
                 return
             }
