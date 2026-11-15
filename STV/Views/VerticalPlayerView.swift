@@ -150,13 +150,15 @@ struct PlayerScreen: View {
                             .accessibilityIdentifier("player.scrim")
                     }
                     if co.pipActive {
-                        Button { co.togglePiP() } label: {
-                            Label("返回播放器", systemImage: "pip.exit")
-                                .padding(.horizontal, 20).padding(.vertical, 12)
-                                .background(STVTheme.surface, in: Capsule())
-                        }
-                        .foregroundStyle(.white)
-                        .position(x: full.width / 2, y: full.height / 2)
+                        PiPPlaceholder(
+                            title: co.detail?.title ?? series.title,
+                            backdrop: co.pipBackdrop,
+                            cover: series.cover,
+                            onResume: { co.togglePiP() },
+                            onExit: { co.exitPlayback(); dismiss() }
+                        )
+                        .frame(width: full.width, height: full.height)
+                        .transition(.opacity)
                     } else if locked {
                         if controlsVisible { lockOnly(full, ins: ins).transition(.opacity) }
                     } else if controlsVisible {
@@ -1051,6 +1053,68 @@ struct EpisodePickerSheet: View {
         }
         .onAppear {
             if let i = ranges.firstIndex(where: { current >= $0.start && current <= $0.end }) { group = i }
+        }
+    }
+}
+
+/// 应用内画中画占位页：以切换瞬间的画面截图为底，显示剧名与「恢复应用内播放 / 退出播放」。
+struct PiPPlaceholder: View {
+    let title: String
+    let backdrop: UIImage?
+    let cover: String
+    let onResume: () -> Void
+    let onExit: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let backdrop {
+                Image(uiImage: backdrop).resizable().scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+            } else {
+                PosterBackdrop(url: cover)
+            }
+            Color.black.opacity(0.42).allowsHitTesting(false)
+
+            VStack(spacing: 12) {
+                Image(systemName: "pip")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(.red)
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                Text("正在画中画窗口中")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .padding(.bottom, 4)
+                Button(action: onResume) {
+                    Label("恢复应用内播放", systemImage: "pip.exit")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Color.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .accessibilityIdentifier("player.pipResume")
+                Button(action: onExit) {
+                    Label("退出播放", systemImage: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .accessibilityIdentifier("player.pipExit")
+            }
+            .padding(22)
+            .frame(maxWidth: 330)
+            .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1))
+            .padding(.horizontal, 36)
         }
     }
 }

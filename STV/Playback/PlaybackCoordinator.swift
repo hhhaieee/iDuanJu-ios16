@@ -155,6 +155,8 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     @Published private var audioObservers: [NSObjectProtocol] = []
     @Published private var nowPlaying: MPNowPlayingSession? = nil
     @Published private(set) var pipActive = false
+    /// 切画中画瞬间的视频画面截图（应用内画中画占位页的底图）。
+    @Published private(set) var pipBackdrop: UIImage? = nil
     @Published var pipError: String? = nil
     @Published private var restoringPiP = false
     @Published private var backgrounded = false
@@ -296,6 +298,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         pip = nil
         pipIdentity = nil
         pipActive = false
+        pipBackdrop = nil
         pipPossible = false
         timer?.invalidate(); timer = nil
         observer = nil
@@ -349,11 +352,73 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
             restoringPiP = true
             pip.stopPictureInPicture()
         } else if pip.isPictureInPicturePossible {
+            // 启动画中画前，先截取当前视频帧作为占位页底图（一旦进入画中画，inline 层画面即被系统移走）。
+            capturePiPBackdrop()
             pip.startPictureInPicture()
         }
     }
 
+    /// 退出画中画并关闭播放器（视图层随后 dismiss，走 onDisappear 的统一清理）。
+    func exitPlayback() {
+        if pip?.isPictureInPictureActive == true {
+            restoringPiP = false            // 让 DidStop 走"暂停"分支，避免返回时误自动续播
+            pip?.stopPictureInPicture()
+        }
+    }
+
+    /// 对当前视频渲染层做一次屏幕快照，作为应用内画中画占位页的底图。
+    /// 仅在画中画可用（AVPlayerLayer 路径）时调用，此时 surface 一定在窗口层级中。
+    private func capturePiPBackdrop() {
+        let surface = engine.surface
+        let bounds = surface.bounds
+        if bounds.width > 8, bounds.height > 8, surface.window != nil {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = UIScreen.main.scale
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(bounds: bounds, format: format)
+            let image = renderer.image { ctx in
+                surface.drawHierarchy(in: bounds, afterScreenUpdates: true)
+            }
+            if !Self.isMostlyBlack(image) { pipBackdrop = image; return }
+        }
+        // AVPlayerLayer 的 drawHierarchy 快照在部分机型上会黑屏：退回 AVAssetImageGenerator
+        // 从当前 item 在播放点截帧（progressive MP4 / 本地 / 直链可靠；HLS 失败则保留封面兜底）。
+        let t = engine.currentTime
+        let av = engine.avPlayer
+        Task { [weak self] in
+            guard let self, let asset = av?.currentItem?.asset else { return }
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1280, height: 1280)
+            generator.requestedTimeToleranceBefore = CMTime(seconds: 0.25, preferredTimescale: 600)
+            generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25, preferredTimescale: 600)
+            do {
+                let (cg, _) = try await generator.image(at: CMTime(seconds: t, preferredTimescale: 600))
+                self.pipBackdrop = UIImage(cgImage: cg)
+            } catch {
+                // 保留封面兜底
+            }
+        }
+    }
+
+    /// 判断一张快照是否整体接近纯黑（AVPlayerLayer 截图失败会返回黑图，此时降级用封面）。
+    private static func isMostlyBlack(_ image: UIImage) -> Bool {
+        guard let cg = image.cgImage else { return true }
+        let w = 6, h = 6
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return true }
+        ctx.interpolationQuality = .medium
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let data = ctx.data else { return true }
+        let px = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+        var sum = 0
+        for i in 0..<(w * h) { sum += Int(px[i * 4]) + Int(px[i * 4 + 1]) + Int(px[i * 4 + 2]) }
+        return sum < 45 * w * h
+    }
+
     func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        if pipBackdrop == nil { capturePiPBackdrop() }   // 兜底系统自动进入画中画的场景
         pipActive = true
         engine.setPiPActive(true)
     }
@@ -371,6 +436,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
 
     func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         pipActive = false
+        pipBackdrop = nil
         engine.setPiPActive(false)
         if !restoringPiP { setPaused(true) }
         else if !backgrounded, !paused, !interrupted, readyIndex != nil, engine.isPaused { play() }
