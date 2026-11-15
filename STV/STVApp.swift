@@ -7,6 +7,7 @@ struct STVApp: App {
     init() {
         CrashReporter.install()
         CFSolver.install()
+        configureSystemTabBarAppearance()
         // 底部导航用的是自定义玻璃胶囊（GlassTabBar），系统 TabBar 永远不该出现。
         // 仅靠 .toolbar(.hidden, for: .tabBar) 在 iOS 16 上不可靠：push 详情页等页面时
         // TabBar 占位会偶发残留——表现为底部一条空白、点上去正好落在透明 TabBar 的按钮上
@@ -14,6 +15,23 @@ struct STVApp: App {
         // （UIKit 层强隐藏 + 禁点，定时兜底扫描），见 RootTabView.swift。
         // Load plugin / 采集站 indexes before anything reads `Sites.all` or `SourceGate`.
         MainActor.assumeIsolated { _ = CMSStore.shared; _ = PluginStore.shared }
+    }
+    /// 把系统 UITabBar 的三种 appearance 全部设成透明背景、无阴影、无分割线。
+    /// 根因：切换 tab 时 SwiftUI 会短暂重建系统 TabBar（`.toolbar(.hidden)` 有时序 bug），
+    /// 那一瞬间会露出它的浅色背景——即用户看到的"菜单底下闪一下的挡板"。
+    /// 定时扫描（TabBarHider）只能事后隐藏、追不上这个闪现，所以必须从外观层让它透明，
+    /// 即便瞬间冒出来也完全看不见。
+    private func configureSystemTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundColor = .clear
+        appearance.backgroundEffect = nil
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+        UITabBar.appearance().compactAppearance = appearance
+        UITabBar.appearance().compactScrollEdgeAppearance = appearance
     }
     private var shotMode: Bool {
         ProcessInfo.processInfo.environment["STV_SHOTS"] == "1"
