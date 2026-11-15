@@ -239,8 +239,13 @@ struct PlayerScreen: View {
         .alert("画中画暂不可用", isPresented: Binding(get: { co.pipError != nil }, set: { if !$0 { co.pipError = nil } })) {
             Button("好") { co.pipError = nil }
         } message: { Text(co.pipError ?? "") }
-        .onAppear { OrientationGate.unlock() }
+        .onAppear {
+            OrientationGate.unlock()
+            // 全屏播放期间隐藏底部白色 Home 指示条（首页不受影响）。
+            HomeIndicatorSuppress.set(true)
+        }
         .onDisappear {
+            HomeIndicatorSuppress.set(false)
             adjuster.restoreBrightness()
             OrientationGate.lockPortrait()
             let coordinator = co
@@ -370,7 +375,13 @@ struct PlayerScreen: View {
                         feedSettleWork = work
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
                     }
-                    .onAppear { proxy.scrollTo(co.current ?? 0, anchor: .top) }
+                    .onAppear {
+                        proxy.scrollTo(co.current ?? 0, anchor: .top)
+                        // 初始定位落地后立刻启用 settle（此前只在 onChange(of: co.current) 里设置，
+                        // 若 current 在视图挂载前已就位则 onChange 永不触发 → 上下滑永远不换集，
+                        // 只会把下一集的封面拉出来又弹回去）。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feedInitialized = true }
+                    }
                     .onChange(of: co.current) { new in
                         if let new { withAnimation { proxy.scrollTo(new, anchor: .top) } }
                         if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
@@ -433,7 +444,8 @@ struct PlayerScreen: View {
                         withAnimation(.easeInOut(duration: 0.25)) { fillScreen = fill }
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         showOSD(fill ? "画面：铺满全屏" : "画面：完整自适应")
-                    }
+                    },
+                    onVerticalSwipe: handleVerticalSwipe
                 )
             } else {
                 // Held still on the episode being left; the new episode's page stays see-through so the video
@@ -756,8 +768,27 @@ struct PlayerScreen: View {
                 }
             }.scrollIndicators(.hidden)
         case .audio:
-            TrackPopover(title: "音轨", options: co.audioOptions, selected: co.audioSelected, allowsOff: false,
-                         emptyText: "当前视频只有一条音轨") { o in if let o { co.selectAudio(o) }; closePanel() }
+            VStack(alignment: .leading, spacing: 0) {
+                TrackPopover(title: "音轨", options: co.audioOptions, selected: co.audioSelected, allowsOff: false,
+                             emptyText: "当前视频只有一条音轨") { o in if let o { co.selectAudio(o) }; closePanel() }
+                Divider().overlay(.white.opacity(0.12)).padding(.horizontal, 12).padding(.vertical, 4)
+                // 音量控制：横屏全屏不再用上下滑调音量，改在这里调。
+                HStack(spacing: 10) {
+                    Image(systemName: (adjuster.volumeSlider?.value ?? 0) > 0.001 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.system(size: 15)).foregroundStyle(.white.opacity(0.85)).frame(width: 22)
+                    Slider(value: Binding(
+                        get: { Double(adjuster.volumeSlider?.value ?? 0) },
+                        set: { v in
+                            adjuster.volumeSlider?.value = Float(v)
+                            adjuster.volumeSlider?.sendActions(for: .valueChanged)
+                        }
+                    )).tint(.white)
+                    Text("\(Int(((adjuster.volumeSlider?.value ?? 0) * 100).rounded()))")
+                        .font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                        .frame(width: 26, alignment: .trailing)
+                }
+                .padding(.horizontal, 12).padding(.bottom, 10)
+            }
         case .subtitles:
             TrackPopover(title: "字幕", options: co.subtitleOptions, selected: co.subtitleSelected, allowsOff: true,
                          emptyText: "当前视频没有可选字幕") { o in co.selectSubtitle(o); closePanel() }
@@ -844,6 +875,20 @@ struct PlayerScreen: View {
             try? await Task.sleep(for: .seconds(1.4))
             if osd == text { withAnimation(.easeIn(duration: 0.25)) { osd = nil } }
         }
+    }
+
+    /// 全屏（横屏）垂直轻扫换集：上滑下一集、下滑上一集；没有相邻集时提示并保持不动。
+    private func handleVerticalSwipe(_ up: Bool) {
+        guard !locked, panel == nil, !scrubbing, !speedMode else { return }
+        let cur = co.current ?? 0
+        let target = up ? cur + 1 : cur - 1
+        guard co.episodes.indices.contains(target) else {
+            showOSD(up ? "已经是最后一集" : "已经是第一集")
+            return
+        }
+        co.select(target)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        showOSD("第\(co.episodes[target].ep)集")
     }
 
     // MARK: Speed gesture
@@ -1080,6 +1125,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
     var onAdjustEnded: () -> Void = {}
     /// Pinch out → fill the screen, pinch in → fit (true = fill).
     var onPinchFill: (Bool) -> Void = { _ in }
+    /// 全屏（横屏）垂直轻扫：true = 上滑（下一集），false = 下滑（上一集）。
+    var onVerticalSwipe: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -1105,11 +1152,14 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         c.onAdjustChanged = onAdjustChanged
         c.onAdjustEnded = onAdjustEnded
         c.onPinchFill = onPinchFill
+        c.onVerticalSwipe = onVerticalSwipe
         c.pinch.isEnabled = !locked && !speedMode
         // While speed HUD is up, keep catcher receiving the finger; chrome is hit-disabled.
         uiView.isUserInteractionEnabled = true
         c.longPress.isEnabled = !locked
         c.adjustPan.isEnabled = !locked
+        // 全屏（横屏）垂直轻扫 = 上下集；竖屏中间留给抖音式翻页，不能抢手势。
+        c.epPan.isEnabled = landscape && !locked && !speedMode
         c.doubleTapEnabled = !speedMode && !locked
         c.tap.isEnabled = !speedMode
     }
@@ -1126,7 +1176,10 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         var onAdjustChanged: (AdjustSide, Double) -> Void = { _, _ in }
         var onAdjustEnded: () -> Void = {}
         var onPinchFill: (Bool) -> Void = { _ in }
+        var onVerticalSwipe: (Bool) -> Void = { _ in }
         let pinch = UIPinchGestureRecognizer()
+        /// 全屏（横屏）垂直轻扫 → 上一集 / 下一集。
+        let epPan = UIPanGestureRecognizer()
         let tap = UITapGestureRecognizer()
         /// Double taps are recognised from single-tap timing (no UITapGestureRecognizer(2)), so a single tap
         /// acts at once instead of waiting ~0.3 s for a second tap that may never come.
@@ -1157,9 +1210,14 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             adjustPan.delegate = self
             adjustPan.maximumNumberOfTouches = 1
             adjustPan.cancelsTouchesInView = false
+            epPan.addTarget(self, action: #selector(handleEpisodeSwipe))
+            epPan.delegate = self
+            epPan.maximumNumberOfTouches = 1
+            epPan.cancelsTouchesInView = false
             view.addGestureRecognizer(tap)
             view.addGestureRecognizer(longPress)
             view.addGestureRecognizer(adjustPan)
+            view.addGestureRecognizer(epPan)
             pinch.addTarget(self, action: #selector(handlePinch))
             pinch.delegate = self
             pinch.cancelsTouchesInView = false
@@ -1242,6 +1300,15 @@ struct PlayerTouchCatcher: UIViewRepresentable {
 
         static func side(_ g: UIGestureRecognizer, in view: CatcherView, landscape: Bool) -> AdjustSide? {
             PlayerAdjuster.zone(x: g.location(in: view).x, width: view.bounds.width, landscape: landscape, edge: view.edgeBackWidth)
+        }
+
+        /// 全屏（横屏）垂直轻扫 → 上滑下一集 / 下滑上一集（到位即切，不做拖拽预览）。
+        @objc private func handleEpisodeSwipe(_ g: UIPanGestureRecognizer) {
+            guard g.state == .ended, let view else { return }
+            let t = g.translation(in: view)
+            let vertical = abs(t.y) > 55 && abs(t.y) > abs(t.x) * 1.6
+            guard vertical else { return }
+            onVerticalSwipe(t.y < 0)
         }
 
         func gestureRecognizer(
