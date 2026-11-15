@@ -13,9 +13,8 @@ struct VerticalPlayerView: View {
         let s = switched ?? series
         PlayerScreen(series: s, startIndex: switched == nil ? startIndex : nil) { next in switched = next }
             .id(s.id)
-            // 隐藏底部白色 Home 指示条（播放/加载期间一直显示的那条白痕）。
+            // 只在全屏播放页隐藏底部白色 Home 指示条（首页保持系统默认）。
             .persistentSystemOverlays(.hidden)
-            .background(HomeIndicatorAutoHidden())
     }
 }
 
