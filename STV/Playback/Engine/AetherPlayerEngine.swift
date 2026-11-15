@@ -200,6 +200,15 @@ import UIKit
         isMuted = on
     }
 
+    var volume: Float {
+        get { engine.volume }
+        set {
+            let v = min(1, max(0, newValue))
+            engine.volume = v
+            if v > 0 { isMuted = false; volumeBeforeMute = v }
+        }
+    }
+
     var fill: Bool = false {
         didSet { engine.videoGravity = fill ? .resizeAspectFill : .resizeAspect }
     }
