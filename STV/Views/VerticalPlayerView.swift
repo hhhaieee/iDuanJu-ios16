@@ -166,8 +166,9 @@ struct PlayerScreen: View {
                                 .transition(.opacity)
                         }
                         controls(full, ins: ins).transition(.opacity)
-                    } else if co.readyIndex != nil, !speedMode {
-                        // Chrome hidden: a 2 pt hairline at the bottom edge (played white 90 % / track white 16 %).
+                    } else if co.readyIndex != nil, !speedMode, co.paused {
+                        // Chrome hidden: a 2 pt hairline at the bottom edge — only while paused,
+                        // so the screen stays clean during playback (user request: the line must fade away).
                         PlayerProgressBar(co: co, scrubbing: .constant(false), mini: true)
                             .frame(width: full.width - (landscape ? 120 : 0))
                             .position(x: full.width / 2, y: full.height - (landscape ? max(ins.bottom, 6) : 1))
@@ -243,6 +244,9 @@ struct PlayerScreen: View {
             OrientationGate.unlock()
             // 全屏播放期间隐藏底部白色 Home 指示条（首页不受影响）。
             HomeIndicatorSuppress.set(true)
+            // 竖屏边缘上下滑调音量 → 直接写播放器音量（MPVolumeView 在 iOS16 不生效）。
+            adjuster.appVolumeGet = { Double(co.volume) }
+            adjuster.appVolumeSet = { v in co.setVolume(Float(v)) }
         }
         .onDisappear {
             HomeIndicatorSuppress.set(false)
@@ -445,7 +449,8 @@ struct PlayerScreen: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         showOSD(fill ? "画面：铺满全屏" : "画面：完整自适应")
                     },
-                    onVerticalSwipe: handleVerticalSwipe
+                    onVerticalSwipe: handleVerticalSwipe,
+                    onSwipeToPage: handleSwipeToPage
                 )
             } else {
                 // Held still on the episode being left; the new episode's page stays see-through so the video
@@ -772,18 +777,16 @@ struct PlayerScreen: View {
                 TrackPopover(title: "音轨", options: co.audioOptions, selected: co.audioSelected, allowsOff: false,
                              emptyText: "当前视频只有一条音轨") { o in if let o { co.selectAudio(o) }; closePanel() }
                 Divider().overlay(.white.opacity(0.12)).padding(.horizontal, 12).padding(.vertical, 4)
-                // 音量控制：横屏全屏不再用上下滑调音量，改在这里调。
+                // 音量控制：直接改播放器自身的音量（0...1），不依赖系统音量条，
+                // 之前经 MPVolumeView 改系统音量在 iOS 16 上根本不生效。
                 HStack(spacing: 10) {
-                    Image(systemName: (adjuster.volumeSlider?.value ?? 0) > 0.001 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    Image(systemName: co.volume > 0.001 ? "speaker.wave.2.fill" : "speaker.slash.fill")
                         .font(.system(size: 15)).foregroundStyle(.white.opacity(0.85)).frame(width: 22)
                     Slider(value: Binding(
-                        get: { Double(adjuster.volumeSlider?.value ?? 0) },
-                        set: { v in
-                            adjuster.volumeSlider?.value = Float(v)
-                            adjuster.volumeSlider?.sendActions(for: .valueChanged)
-                        }
+                        get: { Double(co.volume) },
+                        set: { co.setVolume(Float($0)) }
                     )).tint(.white)
-                    Text("\(Int(((adjuster.volumeSlider?.value ?? 0) * 100).rounded()))")
+                    Text("\(Int((co.volume * 100).rounded()))")
                         .font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.white.opacity(0.7))
                         .frame(width: 26, alignment: .trailing)
                 }
@@ -874,6 +877,19 @@ struct PlayerScreen: View {
         Task {
             try? await Task.sleep(for: .seconds(1.4))
             if osd == text { withAnimation(.easeIn(duration: 0.25)) { osd = nil } }
+        }
+    }
+
+    /// 竖屏手势接管分页落页：切到目标集并同步视频层位置。
+    private func handleSwipeToPage(_ idx: Int) {
+        guard !locked, panel == nil, !scrubbing, !speedMode else { return }
+        guard co.episodes.indices.contains(idx) else { return }
+        feedSettleWork?.cancel()
+        if idx != co.current {
+            co.select(idx)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if lastShownCurrent != nil { showOSD("第\(co.episodes[idx].ep)集") }
+            lastShownCurrent = idx
         }
     }
 
@@ -1127,6 +1143,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
     var onPinchFill: (Bool) -> Void = { _ in }
     /// 全屏（横屏）垂直轻扫：true = 上滑（下一集），false = 下滑（上一集）。
     var onVerticalSwipe: (Bool) -> Void = { _ in }
+    /// 竖屏手势接管分页：落到哪一集（绝对页码）。
+    var onSwipeToPage: (Int) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -1153,13 +1171,14 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         c.onAdjustEnded = onAdjustEnded
         c.onPinchFill = onPinchFill
         c.onVerticalSwipe = onVerticalSwipe
+        c.onSwipeToPage = onSwipeToPage
         c.pinch.isEnabled = !locked && !speedMode
         // While speed HUD is up, keep catcher receiving the finger; chrome is hit-disabled.
         uiView.isUserInteractionEnabled = true
         c.longPress.isEnabled = !locked
         c.adjustPan.isEnabled = !locked
-        // 全屏（横屏）垂直轻扫 = 上下集；竖屏中间留给抖音式翻页，不能抢手势。
-        c.epPan.isEnabled = landscape && !locked && !speedMode
+        /// 全屏（横屏）垂直轻扫 = 上下集；竖屏由手势接管分页（跟手 + 到位翻页）。
+        c.epPan.isEnabled = !locked && !speedMode
         c.doubleTapEnabled = !speedMode && !locked
         c.tap.isEnabled = !speedMode
     }
@@ -1177,6 +1196,11 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         var onAdjustEnded: () -> Void = {}
         var onPinchFill: (Bool) -> Void = { _ in }
         var onVerticalSwipe: (Bool) -> Void = { _ in }
+        /// 竖屏手势接管分页：落到哪一集（绝对页码）。
+        var onSwipeToPage: (Int) -> Void = { _ in }
+        private weak var feedScroll: UIScrollView?
+        private var feedBase: CGFloat = 0
+        private var feedHeight: CGFloat = 0
         let pinch = UIPinchGestureRecognizer()
         /// 全屏（横屏）垂直轻扫 → 上一集 / 下一集。
         let epPan = UIPanGestureRecognizer()
@@ -1302,14 +1326,75 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             PlayerAdjuster.zone(x: g.location(in: view).x, width: view.bounds.width, landscape: landscape, edge: view.edgeBackWidth)
         }
 
-        /// 全屏（横屏）垂直轻扫 → 上滑下一集 / 下滑上一集（到位即切，不做拖拽预览）。
-        @objc private func handleEpisodeSwipe(_ g: UIPanGestureRecognizer) {
-            guard g.state == .ended, let view else { return }
-            let t = g.translation(in: view)
-            let vertical = abs(t.y) > 55 && abs(t.y) > abs(t.x) * 1.6
-            guard vertical else { return }
-            onVerticalSwipe(t.y < 0)
+    /// 全屏（横屏）垂直轻扫 → 上滑下一集 / 下滑上一集（到位即切，不做拖拽预览）。
+    /// 竖屏：手势直接接管 iOS 16 的分页（SwiftUI ScrollView 没有原生 paging）——
+    /// 跟手拖动 ScrollView，松手按位移/速度翻页；第一集下滑 / 最后一集上滑原位回弹。
+    @objc private func handleEpisodeSwipe(_ g: UIPanGestureRecognizer) {
+        guard let view else { return }
+        switch g.state {
+        case .began:
+            feedScroll = Self.findScrollView(from: view)
+            if !landscape {
+                feedBase = feedScroll?.contentOffset.y ?? 0
+                feedHeight = feedScroll?.bounds.height ?? 0
+                feedScroll?.panGestureRecognizer.isEnabled = false   // 跟手期间由我们独占滚动
+            }
+        case .changed where !landscape:
+            guard let sv = feedScroll, feedHeight > 0 else { return }
+            let maxY = max(0, sv.contentSize.height - feedHeight)
+            sv.contentOffset.y = min(max(0, feedBase - g.translation(in: view).y), maxY)
+        case .ended, .cancelled, .failed:
+            if landscape {
+                let t = g.translation(in: view)
+                let vertical = abs(t.y) > 55 && abs(t.y) > abs(t.x) * 1.6
+                guard vertical else { return }
+                onVerticalSwipe(t.y < 0)
+            } else {
+                defer { feedScroll = nil }
+                guard let sv = feedScroll, feedHeight > 0, sv.contentSize.height >= feedHeight else {
+                    sv?.panGestureRecognizer.isEnabled = true
+                    return
+                }
+                let t = g.translation(in: view)
+                let v = g.velocity(in: view)
+                let page = feedHeight
+                let pageCount = max(0, Int(round(sv.contentSize.height / page)) - 1)
+                let current = Int(min(max(0, feedBase / page), CGFloat(pageCount)))
+                let flick = abs(v.y) > 500
+                let drag = abs(t.y) > page * 0.25
+                let forward = t.y < 0   // 上滑 = 下一集
+                var target = current
+                if flick || drag {
+                    target = forward ? current + 1 : current - 1
+                }
+                let clamped = min(max(0, target), pageCount)
+                sv.panGestureRecognizer.isEnabled = true
+                if clamped == current {
+                    // 没有相邻集或拖动不足：原位回弹；撞到边界给提示。
+                    sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: CGFloat(current) * page), animated: true)
+                    if flick || drag {
+                        if forward, current >= pageCount { onVerticalSwipe(true) }      // 已是最后一集
+                        if !forward, current <= 0 { onVerticalSwipe(false) }            // 已是第一集
+                    }
+                } else {
+                    sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: CGFloat(clamped) * page), animated: true)
+                    onSwipeToPage(clamped)
+                }
+            }
+        default:
+            break
         }
+    }
+
+    /// 向上遍历宿主视图找到 SwiftUI ScrollView 的 UIScrollView。
+    static func findScrollView(from view: UIView) -> UIScrollView? {
+        var cur: UIView? = view
+        while let v = cur {
+            if let sv = v as? UIScrollView { return sv }
+            cur = v.superview
+        }
+        return nil
+    }
 
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
