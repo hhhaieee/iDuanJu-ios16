@@ -4,6 +4,7 @@ struct ProfileView: View {
     @State private var message: String?
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var gate = SourceGate.shared
+    @ObservedObject private var proxy = ProxySettings.shared
 
     var body: some View {
         ScrollView {
@@ -38,7 +39,39 @@ struct ProfileView: View {
                     link("片源管理", "square.stack.3d.down.right", .sources,
                          trailing: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : "红果 · 黄果")
                     link("插件", "puzzlepiece.extension", .plugins, trailing: pluginTrailing)
+                    link("数据源诊断", "stethoscope", .diagnostics)
                     link("开源许可", "doc.text", .licenses)
+                }
+                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 16)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Image(systemName: "network").frame(width: 24)
+                        Text("网络代理").foregroundStyle(STVTheme.text)
+                        Spacer()
+                        Toggle("", isOn: $proxy.enabled).labelsHidden()
+                    }.padding(14)
+                    if proxy.enabled {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Picker("代理类型", selection: $proxy.kind) {
+                                ForEach(ProxySettings.Kind.allCases) { Text($0.rawValue).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            HStack(spacing: 10) {
+                                Text("服务器").font(.subheadline).foregroundStyle(STVTheme.secondary).frame(width: 52, alignment: .leading)
+                                TextField("127.0.0.1", text: $proxy.host)
+                                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                    .keyboardType(.URL).foregroundStyle(STVTheme.text)
+                            }
+                            HStack(spacing: 10) {
+                                Text("端口").font(.subheadline).foregroundStyle(STVTheme.secondary).frame(width: 52, alignment: .leading)
+                                TextField("7890", text: $proxy.port)
+                                    .keyboardType(.numberPad).foregroundStyle(STVTheme.text)
+                            }
+                            Text("网页抓取、封面、接口请求与本地视频转发都走该代理；改动后需重启 App 生效")
+                                .font(.caption).foregroundStyle(STVTheme.secondary)
+                        }.padding(.horizontal, 14).padding(.bottom, 14)
+                    }
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
