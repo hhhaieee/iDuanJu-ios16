@@ -8,7 +8,8 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    # macos-15-intel: 4 vCPU / 14GB 内存。arm64 标准机只有 7GB，编译 TDLibKit（整包优化）会 OOM 被杀。
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
