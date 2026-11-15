@@ -31,10 +31,38 @@ enum HomeIndicatorSuppress {
         // 除了基类，还要覆盖会 override 该 getter 的常见容器（子类 override 不会被基类替换命中）。
         let classes: [AnyClass] = [
             UIViewController.self, UINavigationController.self, UITabBarController.self,
-            UISplitViewController.self, UIPageViewController.self, UIHostingController.self,
+            UISplitViewController.self, UIPageViewController.self,
         ]
         for cls in classes {
             if let method = class_getInstanceMethod(cls, sel) { method_setImplementation(method, imp) }
+        }
+        // SwiftUI 的 UIHostingController 是泛型类，运行时每个特化都是独立的 ObjC class，
+        // 无法用 `UIHostingController.self` 直接引用，这里遍历运行时全部类逐个 swizzle。
+        swizzleHostingControllers(sel, imp)
+    }
+
+    /// 遍历运行时所有类，找到 UIHostingController 及其子类并替换 getter 实现。
+    private static func swizzleHostingControllers(_ sel: Selector, _ imp: IMP) {
+        let total = objc_getClassList(nil, 0)
+        guard total > 0 else { return }
+        let buffer = UnsafeMutablePointer<AnyClass>.allocate(capacity: Int(total))
+        defer { buffer.deallocate() }
+        let count = objc_getClassList(AutoreleasingUnsafeMutablePointer(buffer), total)
+        for i in 0..<Int(count) {
+            let cls = buffer[i]
+            var sup: AnyClass? = cls
+            var depth = 0
+            while let s = sup, depth < 12 {
+                let name = String(cString: class_getName(s))
+                if name.contains("UIHostingController") {
+                    if let method = class_getInstanceMethod(cls, sel) {
+                        method_setImplementation(method, imp)
+                    }
+                    break
+                }
+                sup = class_getSuperclass(s)
+                depth += 1
+            }
         }
     }
 
