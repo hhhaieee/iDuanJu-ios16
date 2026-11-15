@@ -81,6 +81,9 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     /// Core playing the current episode (the view mounts its surface).
     @Published private(set) var engineKind: PlayerEngineKind = .avplayer
     @Published private(set) var muted = false
+    /// App-level playback volume (0...1), persisted across launches.
+    @Published private(set) var volume: Float = Float(UserDefaults.standard.object(forKey: PlaybackCoordinator.volumeKey) as? Double ?? 1)
+    static let volumeKey = "stv.player.volume"
     @Published var autoNext: Bool = UserDefaults.standard.object(forKey: "stv.player.autoNext") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoNext, forKey: "stv.player.autoNext") }
     }
@@ -536,6 +539,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
                 NSLog("%@", "[STV] item prepared engine=\(next.kind.short) src=\(String(describing: src).prefix(120))")
                 #endif
                 next.muted = muted
+                next.volume = volume
                 readyIndex = i
                 refreshPiP()
                 if !paused, !interrupted { play() }
@@ -817,6 +821,16 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     func setMuted(_ on: Bool) {
         muted = on
         engine.muted = on
+    }
+
+    /// App-level volume for the running engine (0...1). Always takes effect, unlike the
+    /// system-volume hack through MPVolumeView which silently fails on iOS 16.
+    func setVolume(_ v: Float) {
+        let clamped = min(1, max(0, v))
+        volume = clamped
+        engine.volume = clamped
+        if clamped > 0, muted { muted = false }
+        UserDefaults.standard.set(Double(clamped), forKey: Self.volumeKey)
     }
 
     /// ±10 s buttons / double tap.
