@@ -30,8 +30,6 @@ struct STVApp: App {
         appearance.shadowImage = UIImage()
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
-        UITabBar.appearance().compactAppearance = appearance
-        UITabBar.appearance().compactScrollEdgeAppearance = appearance
     }
     private var shotMode: Bool {
         ProcessInfo.processInfo.environment["STV_SHOTS"] == "1"
