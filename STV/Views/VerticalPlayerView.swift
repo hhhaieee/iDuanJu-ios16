@@ -1352,7 +1352,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             } else {
                 defer { feedScroll = nil }
                 guard let sv = feedScroll, feedHeight > 0, sv.contentSize.height >= feedHeight else {
-                    sv?.panGestureRecognizer.isEnabled = true
+                    // guard 的 else 里拿不到已绑定的 sv，回退用属性本身恢复滚动。
+                    feedScroll?.panGestureRecognizer.isEnabled = true
                     return
                 }
                 let t = g.translation(in: view)
