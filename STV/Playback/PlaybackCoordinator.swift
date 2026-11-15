@@ -52,6 +52,8 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     @Published var detail: HGSeriesDetail? = nil
     @Published private(set) var current: Int? = nil
     @Published private(set) var readyIndex: Int? = nil
+    /// 切集瞬间离开的那一集（切集过渡期间旧集页面保持透明，避免封面闪一下）。
+    @Published private(set) var prevIndex: Int? = nil
     @Published private(set) var errors: [Int: String] = [:]
     /// Set when an episode failed on a Cloudflare interstitial (player shows 去验证).
     @Published private(set) var verifyTargets: [Int: VerifyTarget] = [:]
@@ -463,6 +465,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
 
     func select(_ index: Int?) {
         guard let index, index != current, episodes.indices.contains(index) else { return }
+        prevIndex = current
         current = index
         paused = false
         activate(index)
@@ -541,6 +544,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
                 next.muted = muted
                 next.volume = volume
                 readyIndex = i
+                prevIndex = nil
                 refreshPiP()
                 if !paused, !interrupted { play() }
                 if episodes.indices.contains(i + 1) {

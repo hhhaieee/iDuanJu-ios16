@@ -52,6 +52,8 @@ struct PlayerScreen: View {
     @State private var previewRate: Double = 1.0
     @State private var pendingLock = false
     @State private var pendingCancel = false
+    /// 竖屏视频点「全屏」时进入的沉浸全屏态（锁定竖屏 + 隐藏 chrome，不旋转成横屏）。
+    @State private var portraitFullscreen = false
     /// Portrait feed content offset (pt): the shared video layer rides along with the page being swiped.
     @State private var feedScrollY: CGFloat = 0
     @State private var feedSettleWork: DispatchWorkItem?
@@ -190,11 +192,7 @@ struct PlayerScreen: View {
                             .transition(.opacity).allowsHitTesting(false)
                     }
                     HiddenVolumeView(adjuster: adjuster).frame(width: 1, height: 1).allowsHitTesting(false)
-                    if speedMode {
-                        PlayerSpeedHUD(rate: previewRate, pendingLock: pendingLock, pendingCancel: pendingCancel,
-                                       hasLockedRate: co.lockedRate != nil)
-                            .position(x: full.width / 2, y: full.height / 2).allowsHitTesting(false)
-                    }
+                    // 长按 = 固定 2 倍速，不再弹出 2X 提示窗（用户要求）。
                 }
                 .frame(width: full.width, height: full.height)
             }
@@ -447,7 +445,8 @@ struct PlayerScreen: View {
             } else {
                 // Held still on the episode being left; the new episode's page stays see-through so the video
                 // layer (riding with it) is visible the moment its first frame lands — no poster cutting in.
-                if (i == co.heldFrame?.index || i == co.current) && co.errors[i] == nil {
+                // prevIndex（刚离开的那一集）也保持透明，避免切集瞬间闪一下封面。
+                if (i == co.heldFrame?.index || i == co.current || i == co.prevIndex) && co.errors[i] == nil {
                     Color.clear
                 } else {
                     PosterBackdrop(url: series.cover)
@@ -697,9 +696,15 @@ struct PlayerScreen: View {
                 Image(systemName: "square.grid.2x2").font(.system(size: 19))
             } }
             if !landscape {
-                slot { PlayerRowIcon(id: "player.fullscreen", a11y: "横屏全屏", action: { OrientationGate.enterLandscape(); flashChrome() }) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 18))
-                } }
+                if portraitFullscreen {
+                    slot { PlayerRowIcon(id: "player.fullscreen", a11y: "退出全屏", action: { exitFullscreen() }) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 18))
+                    } }
+                } else {
+                    slot { PlayerRowIcon(id: "player.fullscreen", a11y: "全屏", action: { enterSmartFullscreen() }) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 18))
+                    } }
+                }
             }
         }
         items.frame(maxWidth: landscape ? nil : .infinity)
@@ -935,6 +940,26 @@ struct PlayerScreen: View {
     private func flashChrome() {
         showChrome = true
         lastInteraction = Date()
+    }
+
+    // MARK: Smart fullscreen
+    // 点「全屏」时按视频宽高比自动决定方向：横屏视频旋转横屏，竖屏视频保持竖屏进入沉浸全屏。
+
+    private func enterSmartFullscreen() {
+        if aspect > 1.0 {
+            OrientationGate.enterLandscape()
+            flashChrome()
+        } else {
+            OrientationGate.lockPortrait()
+            portraitFullscreen = true
+            withAnimation(.easeOut(duration: 0.2)) { showChrome = false }
+        }
+    }
+
+    private func exitFullscreen() {
+        portraitFullscreen = false
+        OrientationGate.unlock()
+        flashChrome()
     }
 
     private func load() async {
