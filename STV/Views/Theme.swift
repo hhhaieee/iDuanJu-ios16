@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// App palette, light + dark (follows the system). Dark is the PlutoFish mini-app palette; light is its
-/// counterpart (white surfaces on a soft grey ground). Brand blue marks focus and playback progress.
+/// counterpart (white surfaces on a soft grey ground). Brand gold (matching the app icon) marks focus and playback progress.
 /// Screens that must stay dark (player, image viewer, manga reader) force `.preferredColorScheme(.dark)`,
 /// so the same tokens resolve to the dark values there.
 enum STVTheme {
@@ -11,7 +11,7 @@ enum STVTheme {
     static let elevated = adaptive(light: (0.910, 0.918, 0.933), dark: (0.224, 0.239, 0.259))
     static let text = adaptive(light: (0.071, 0.078, 0.094), dark: (0.933, 0.941, 0.953))
     static let secondary = adaptive(light: (0.373, 0.400, 0.447), dark: (0.68, 0.71, 0.75))
-    static let accent = adaptive(light: (0.157, 0.427, 0.937), dark: (0.541, 0.706, 1))
+    static let accent = adaptive(light: (0.835, 0.686, 0.216), dark: (0.945, 0.835, 0.478))
     static let accentWarm = adaptive(light: (0.835, 0.522, 0.078), dark: (0.949, 0.710, 0.361))
     static let glass = text.opacity(0.07)
     static let glassBorder = text.opacity(0.12)

@@ -81,7 +81,7 @@ struct NovelSourcesView: View {
         }
         .disabled(!s.supported)
         .swipeActions(edge: .leading) {
-            if s.hasLogin { Button("登录") { login = s }.tint(.blue) }
+            if s.hasLogin { Button("登录") { login = s }.tint(STVTheme.accent) }
         }
         .contextMenu {
             if s.hasLogin { Button("登录", systemImage: "person.crop.circle") { login = s } }

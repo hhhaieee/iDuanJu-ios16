@@ -109,7 +109,16 @@ struct TabBarHider: UIViewRepresentable {
             super.init(frame: .zero)
             isUserInteractionEnabled = false
             backgroundColor = .clear
-            let t = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            // 立即扫一次；iOS 16 的系统 TabBar 占位常在首帧之后才冒出来（顶部遮挡板/底部白条），
+            // 所以在启动后的关键时间点密集补扫，避免"过一会才消失"。
+            Self.hideTabBars(from: self)
+            for delay in [0.05, 0.15, 0.4, 0.8, 1.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else { return }
+                    Self.hideTabBars(from: self)
+                }
+            }
+            let t = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 Self.hideTabBars(from: self)
             }

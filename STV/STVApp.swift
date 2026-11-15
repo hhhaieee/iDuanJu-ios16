@@ -73,7 +73,7 @@ struct STVApp: App {
                 }
                 #endif
             }
-            .background(STVTheme.bg)
+            .background(STVTheme.bg.ignoresSafeArea())
             .background(TabBarHider())
             .environmentObject(appearance)
         }
