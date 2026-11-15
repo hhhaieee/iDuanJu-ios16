@@ -39,7 +39,6 @@ struct ProfileView: View {
                 VStack(spacing: 0) {
                     link("片源管理", "square.stack.3d.down.right", .sources,
                          trailing: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : "红果 · 黄果")
-                    link("插件", "puzzlepiece.extension", .plugins, trailing: pluginTrailing)
                     link("数据源诊断", "stethoscope", .diagnostics)
                     link("外观与主题", "paintpalette", .appearance, trailing: appearance.theme.label)
                     link("开源许可", "doc.text", .licenses)
@@ -91,11 +90,6 @@ struct ProfileView: View {
         }
         .background(STVTheme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-    }
-
-    private var pluginTrailing: String? {
-        let n = PluginStore.shared.visiblePlugins.count + CMSStore.shared.visibleSites.count
-        return n > 0 ? "\(n) 个" : nil
     }
 
     static var versionText: String {
