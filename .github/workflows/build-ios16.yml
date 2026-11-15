@@ -16,6 +16,16 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # 缓存 DerivedData：TDLibKit 整包编译在 7GB 内存的 arm64 编译机上极易被 OOM 杀掉。
+      # 有了缓存，每次失败后重跑都能接着上次的进度继续，最终收敛出包。
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: DerivedDataRelease
+          key: dd-v1-${{ github.run_id }}
+          restore-keys: |
+            dd-v1-
+
       - name: Build unsigned IPA
         run: bash scripts/package.sh dist
 
