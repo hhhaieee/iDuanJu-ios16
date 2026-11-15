@@ -50,8 +50,17 @@ final class SourceGate: ObservableObject {
         guard s.source == .telegram else { return isVisible(s.source) }
         return !(s.tags.contains(TGVideoProvider.adultTag)) || showAdultChannels
     }
-    /// Sources offered in the search tab strip.
-    var searchSources: [DramaSource] { [.hongguo] + (showHuangguo ? [.huangguo] : []) + visibleSites }
+    /// Sources offered in the search tab strip. Follows the user's 首页片源顺序 (片源管理 → 首页片源顺序)
+    /// for the drama sources; new/unsorted sources are appended in default order.
+    var searchSources: [DramaSource] {
+        let base = [.hongguo] + (showHuangguo ? [.huangguo] : []) + visibleSites
+        let order = HomeSourceOrder.shared.keys
+        guard !order.isEmpty else { return base }
+        let key: (DramaSource) -> String = { s in (s == .hongguo || s == .huangguo) ? s.rawValue : "site." + s.rawValue }
+        let ordered = order.compactMap { k in base.first { key($0) == k } }
+        let rest = base.filter { s in !order.contains(key(s)) }
+        return ordered + rest
+    }
 
     var showAdultChannels: Bool { unlocked && adultChannels }
     var showAdultManga: Bool { unlocked && adultManga }

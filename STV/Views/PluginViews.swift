@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// 与 Info.plist 的 UTImportedTypeDeclarations 对应；让文件选择器可选 .idjplugin。
 extension UTType {
-    static let idjplugin = UTType(importedAs: "com.stv.idjplugin")
+    static let idjplugin = UTType(importedAs: "com.stv.idjplugin", conformingTo: .json)
 }
 
 /// 我的 → 插件：已安装插件、添加（网址 / 文件 / 粘贴）、订阅、内置推荐、苹果 CMS 采集站、检查更新。

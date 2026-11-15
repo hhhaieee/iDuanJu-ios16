@@ -445,8 +445,9 @@ struct PlayerScreen: View {
             } else {
                 // Held still on the episode being left; the new episode's page stays see-through so the video
                 // layer (riding with it) is visible the moment its first frame lands — no poster cutting in.
-                // prevIndex（刚离开的那一集）也保持透明，避免切集瞬间闪一下封面。
-                if (i == co.heldFrame?.index || i == co.current || i == co.prevIndex) && co.errors[i] == nil {
+                // 切集过渡期间（readyIndex 尚未落到新集、prevIndex 记着刚离开的集）所有页面一律透明，
+                // 彻底不出现封面海报；首次加载（prevIndex == nil）仍保留封面预览。
+                if ((co.readyIndex == nil && co.prevIndex != nil) || i == co.heldFrame?.index || i == co.current || i == co.prevIndex) && co.errors[i] == nil {
                     Color.clear
                 } else {
                     PosterBackdrop(url: series.cover)

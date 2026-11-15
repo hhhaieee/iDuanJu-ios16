@@ -32,6 +32,8 @@ struct SourceDiagnosticsView: View {
     @State private var running = false
     @State private var copied = false
     @State private var verifyTarget: VerifyTarget?
+    /// 主检测循环（串行）。验证后重测会等它跑完再执行，避免两个源并发检测卡死闪退。
+    @State private var detectTask: Task<Void, Never>?
 
     /// 内置源（红果/黄果/各站点/Telegram）+ 插件 + 采集站，去重。
     private var sources: [DramaSource] {
@@ -62,7 +64,7 @@ struct SourceDiagnosticsView: View {
         .background(STVTheme.bg.ignoresSafeArea())
         .navigationTitle("数据源诊断").navigationBarTitleDisplayMode(.inline)
         .sheet(item: $verifyTarget) { t in
-            SiteVerifySheet(target: t) { Task { await recheck(t.source) } }
+            SiteVerifySheet(target: t) { recheck(t.source) }
         }
         .onAppear { if selected.isEmpty { selected = Set(sources.map(\.rawValue)) } }
     }
@@ -73,7 +75,7 @@ struct SourceDiagnosticsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Button {
-                    Task { await run() }
+                    run()
                 } label: {
                     Label(running ? "检测中…" : "开始检测", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold))
@@ -180,22 +182,27 @@ struct SourceDiagnosticsView: View {
         }
     }
 
-    private func run() async {
-        running = true
-        defer { running = false }
-        let targets = sources.filter { selected.contains($0.rawValue) }
-        for s in targets {
+    private func run() {
+        detectTask = Task {
+            running = true
+            defer { running = false }
+            let targets = sources.filter { selected.contains($0.rawValue) }
+            for s in targets {
+                results[s.rawValue] = SourceResult(running: true)
+                let steps = await probe(s)
+                results[s.rawValue] = SourceResult(steps: steps, done: true)
+            }
+        }
+    }
+
+    /// 站点验证通过后，等主检测循环结束再只重测该源，避免两个源并发检测卡死/闪退。
+    private func recheck(_ s: DramaSource) {
+        Task {
+            await detectTask?.value
             results[s.rawValue] = SourceResult(running: true)
             let steps = await probe(s)
             results[s.rawValue] = SourceResult(steps: steps, done: true)
         }
-    }
-
-    /// 站点验证通过后，只重测该源（不打断其它源的结果）。
-    private func recheck(_ s: DramaSource) async {
-        results[s.rawValue] = SourceResult(running: true)
-        let steps = await probe(s)
-        results[s.rawValue] = SourceResult(steps: steps, done: true)
     }
 
     private func probe(_ s: DramaSource) async -> [Step] {
