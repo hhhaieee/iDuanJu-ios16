@@ -16,6 +16,10 @@ final class PlayerAdjuster: ObservableObject {
     @Published private var hideTask: Task<Void, Never>? = nil
     /// Hidden MPVolumeView slider — the sanctioned way to set system volume.
     weak var volumeSlider: UISlider?
+    /// App-level volume channel (preferred): read current, write new value (0...1).
+    /// MPVolumeView 改系统音量在 iOS 16 上经常静默失效，这里直接改播放器音量。
+    var appVolumeGet: (() -> Double)?
+    var appVolumeSet: ((Double) -> Void)?
 
     static func zone(x: CGFloat, width: CGFloat, landscape: Bool, edge: CGFloat) -> AdjustSide? {
         guard width > 0, x >= edge, x <= width - 8 else { return nil }
@@ -33,7 +37,7 @@ final class PlayerAdjuster: ObservableObject {
             if originalBrightness == nil { originalBrightness = UIScreen.main.brightness }
             startValue = Double(UIScreen.main.brightness)
         case .volume:
-            startValue = Double(volumeSlider?.value ?? AVAudioSession.sharedInstance().outputVolume)
+            startValue = appVolumeGet?() ?? Double(volumeSlider?.value ?? AVAudioSession.sharedInstance().outputVolume)
         }
         hud = (side, startValue)
     }
@@ -43,7 +47,9 @@ final class PlayerAdjuster: ObservableObject {
         let v = min(1, max(0, startValue + fraction))
         switch side {
         case .brightness: UIScreen.main.brightness = CGFloat(v)
-        case .volume: volumeSlider?.value = Float(v); volumeSlider?.sendActions(for: .valueChanged)
+        case .volume:
+            if let set = appVolumeSet { set(v) }
+            else { volumeSlider?.value = Float(v); volumeSlider?.sendActions(for: .valueChanged) }
         }
         hud = (side, v)
     }
