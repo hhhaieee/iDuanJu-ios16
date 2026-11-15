@@ -8,11 +8,19 @@ struct RootTabView: View {
     static let items: [(String, String)] = [("首页", "play.house.fill"), ("搜索", "magnifyingglass"),
                                             ("找剧", "square.grid.2x2.fill"), ("我的", "person.crop.circle.fill")]
     var body: some View {
-        TabView(selection: $tab) {
-            Stack(path: $paths[0]) { HomeView() }.tag(0)
-            Stack(path: $paths[1]) { SearchView() }.tag(1)
-            Stack(path: $paths[2]) { CategoryView() }.tag(2)
-            Stack(path: $paths[3]) { ProfileView() }.tag(3)
+        // 不用系统 TabView：iOS 16 上 `.toolbar(.hidden, for: .tabBar)` 有时序 bug，
+        // 切 tab 时系统 TabBar 会短暂"重建"露出浅色背景——即底部那根闪一下的挡板。
+        // 这里改用 ZStack 自绘切换：四个 NavigationStack 常驻（opacity/zIndex 控制显示），
+        // 从根上杜绝 UITabBar 的参与，彻底消除挡板闪现。
+        ZStack {
+            Stack(path: $paths[0]) { HomeView() }
+                .opacity(tab == 0 ? 1 : 0).zIndex(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
+            Stack(path: $paths[1]) { SearchView() }
+                .opacity(tab == 1 ? 1 : 0).zIndex(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
+            Stack(path: $paths[2]) { CategoryView() }
+                .opacity(tab == 2 ? 1 : 0).zIndex(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
+            Stack(path: $paths[3]) { ProfileView() }
+                .opacity(tab == 3 ? 1 : 0).zIndex(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
         }
         .tint(STVTheme.accent)
         .overlay(alignment: .bottom) {
@@ -25,13 +33,20 @@ struct RootTabView: View {
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: paths[tab].isEmpty)
         .onAppear {
-            Router.handler = { r in paths[tab].append(r) }
+            bindRouter()
             #if DEBUG
             if ProcessInfo.processInfo.environment["STV_TD_OPEN"] == "1" { Router.push(.tdlib) }
             #endif
         }
+        .onChange(of: tab) { _ in bindRouter() }
         // Cold start: restore a saved TDLib login (no network login, nothing is sent).
         .task { await TDLibService.shared.bootstrap() }
+    }
+
+    /// 全局路由始终追加到「当前 tab」的导航栈（切 tab 后重新绑定，避免 push 到旧栈）。
+    private func bindRouter() {
+        let currentTab = tab
+        Router.handler = { r in paths[currentTab].append(r) }
     }
 }
 
