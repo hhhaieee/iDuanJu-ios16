@@ -93,7 +93,9 @@ struct NovelHomeView: View {
                     }
                 }
             }
-            .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 100)
+            .padding(.horizontal, 16).padding(.top, 8)
+            // 嵌入首页翻页容器时底部补齐胶囊栏 + Home 指示条高度，避免书架卡片透到胶囊后面。
+            .padding(.bottom, embedded ? 24 + GlassTabBar.clearance + 34 : 100)
         }
         .background(STVTheme.bg)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .epub], allowsMultipleSelection: true) { r in

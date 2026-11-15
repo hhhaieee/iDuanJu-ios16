@@ -60,6 +60,9 @@ struct PlayerScreen: View {
     /// 初始布局/程序性 scrollTo 会触发 onPreferenceChange(y=0)，若此时 current 已被 load() 设为
     /// 用户点选的集，0.2s 后的 select(0) 会把它拉回第一集。等初始滚动落地后再开始响应手势。
     @State private var feedInitialized = false
+    /// 横屏转竖屏时 portraitFeed 重新挂载、ScrollView 从 y=0 起步滚到 co.current 的过渡态。
+    /// anchoring 期间完全禁用 settle，等 y 真正到达目标页再启用，避免把选集误拉回第一集。
+    @State private var feedAnchoring = false
     /// Running double-tap seek (+10/+20/… s) and which side it is on; drives the side bubble.
     @State private var seekRun: (total: Int, at: Date)?
     @Environment(\.verticalSizeClass) private var vClass
@@ -348,6 +351,17 @@ struct PlayerScreen: View {
                             return
                         }
                         feedScrollY = y
+                        // 初始定位：等 ScrollView 滚到 co.current 对应页后（y 与目标页偏移 < 2pt）
+                        // 才启用 settle。iOS 16 的远距离 scrollTo 对 LazyVStack 可能延迟，若在 y 仍停在
+                        // 第 1 集时就 settle，会把选集误拉回第一集。
+                        if feedAnchoring {
+                            let targetY = CGFloat(co.current ?? 0) * max(pageHeight, 1)
+                            if abs(y - targetY) < 2 {
+                                feedAnchoring = false
+                                feedInitialized = true
+                            }
+                            return
+                        }
                         guard feedInitialized else { return }
                         feedSettleWork?.cancel()
                         let work = DispatchWorkItem {
@@ -371,16 +385,26 @@ struct PlayerScreen: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
                     }
                     .onAppear {
-                        // 横屏切回竖屏时 portraitFeed 会重新挂载，此时 feedInitialized 仍是 true，
-                        // scrollTo(co.current) 的初始滚动（从 y=0 起步）会被 onPreferenceChange 当成
-                        // 用户滑动，0.2s 后 select(0) 把选集拉回第一集。挂载时先重置，等初始定位
-                        // 落地后再启用 settle，避免误切回第一集。
+                        // 横屏切回竖屏时 portraitFeed 重新挂载，ScrollView 从 y=0 起步需滚到 co.current。
+                        // iOS 16 的远距离 scrollTo 对 LazyVStack 可能延迟/失效，若在落地前就启用 settle，
+                        // 会把 co.current 误判成第 1 集拉回。这里进入 anchoring：settle 先禁用，
+                        // 等 y 真正到达 co.current 对应位置后再启用（见 onPreferenceChange 的检测）。
+                        feedAnchoring = true
                         feedInitialized = false
-                        proxy.scrollTo(co.current ?? 0, anchor: .top)
-                        // 初始定位落地后立刻启用 settle（此前只在 onChange(of: co.current) 里设置，
-                        // 若 current 在视图挂载前已就位则 onChange 永不触发 → 上下滑永远不换集，
-                        // 只会把下一集的封面拉出来又弹回去）。
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feedInitialized = true }
+                        let target = co.current ?? 0
+                        // 画面层立即对齐到目标页，避免 scrollTo 未落地时视频层整屏偏出（黑屏/错位）。
+                        feedScrollY = CGFloat(target) * geo.size.height
+                        proxy.scrollTo(target, anchor: .top)
+                        // 兜底：极端情况下 scrollTo 迟迟不落地，2 秒后强制结束 anchoring 并补一次滚动，
+                        // 避免一直锁死导致用户无法上下滑换集。用最新 co.current（可能已随 load 变化）。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            guard feedAnchoring else { return }
+                            feedAnchoring = false
+                            feedInitialized = true
+                            let t = co.current ?? 0
+                            feedScrollY = CGFloat(t) * geo.size.height
+                            proxy.scrollTo(t, anchor: .top)
+                        }
                     }
                     .onChange(of: co.current) { new in
                         if let new { withAnimation { proxy.scrollTo(new, anchor: .top) } }
@@ -396,7 +420,8 @@ struct PlayerScreen: View {
                             }
                         }
                         // 初始定位的 scrollTo 落地后再开始响应手势滚动，避免初始 y=0 把选集拉回第一集。
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feedInitialized = true }
+                        // 若仍在 anchoring（等 y 到达目标页），不在这里强行启用，交给到达检测 / 2s 兜底。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if !feedAnchoring { feedInitialized = true } }
                     }
                     .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
                 }

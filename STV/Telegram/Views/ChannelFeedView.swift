@@ -43,7 +43,9 @@ struct ChannelFeedView: View {
                         .accessibilityIdentifier("tg.loadMore")
                 }
             }
-            .padding(.bottom, 24)
+            // 嵌入首页翻页容器（.page 会忽略外层 safeAreaInset、滚动视口顶到屏幕底）时，
+            // 底部补齐胶囊栏 + Home 指示条高度，避免内容透到半透明胶囊后面。
+            .padding(.bottom, embedded ? 24 + GlassTabBar.clearance + 34 : 24)
         }
         .scrollIndicators(.hidden)
         .refreshable { await store.refresh(only) }
