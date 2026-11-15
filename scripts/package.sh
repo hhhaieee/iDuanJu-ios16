@@ -12,11 +12,12 @@ BUILD=$(awk -F'"' '/CURRENT_PROJECT_VERSION/{print $2; exit}' project.yml)
 xcodegen generate >/dev/null
 common=(-project STV.xcodeproj -scheme STV -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="")
 
-# -jobs 2 限制并行编译目标数，避免 GitHub 免费编译机内存不足被静默杀掉。
-xcodebuild "${common[@]}" -jobs 2 -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath DerivedDataRelease build 2>&1 | tee /tmp/stv-package-ios.log
+# -jobs 1 + singlefile（逐文件编译，禁用整包 WMO）：TDLibKit/AetherEngine 整包优化在 7GB 内存
+# 的免费编译机上会 OOM 被静默杀掉；逐文件编译内存峰值大幅下降。
+xcodebuild "${common[@]}" -jobs 1 -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath DerivedDataRelease SWIFT_COMPILATION_MODE=singlefile build 2>&1 | tee /tmp/stv-package-ios.log
 # 模拟器构建仅用于 simulator.app.zip（TrollStore 用不到），跳过以省一半编译时间与内存。
 if [ "${STV_SKIP_SIM:-1}" = "0" ]; then
-  xcodebuild "${common[@]}" -jobs 2 -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedDataRelease build 2>&1 | tee /tmp/stv-package-sim.log
+  xcodebuild "${common[@]}" -jobs 1 -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedDataRelease SWIFT_COMPILATION_MODE=singlefile build 2>&1 | tee /tmp/stv-package-sim.log
 fi
 
 STAGE=$(mktemp -d)
