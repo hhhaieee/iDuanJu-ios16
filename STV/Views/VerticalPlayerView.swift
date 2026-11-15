@@ -371,6 +371,11 @@ struct PlayerScreen: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
                     }
                     .onAppear {
+                        // 横屏切回竖屏时 portraitFeed 会重新挂载，此时 feedInitialized 仍是 true，
+                        // scrollTo(co.current) 的初始滚动（从 y=0 起步）会被 onPreferenceChange 当成
+                        // 用户滑动，0.2s 后 select(0) 把选集拉回第一集。挂载时先重置，等初始定位
+                        // 落地后再启用 settle，避免误切回第一集。
+                        feedInitialized = false
                         proxy.scrollTo(co.current ?? 0, anchor: .top)
                         // 初始定位落地后立刻启用 settle（此前只在 onChange(of: co.current) 里设置，
                         // 若 current 在视图挂载前已就位则 onChange 永不触发 → 上下滑永远不换集，

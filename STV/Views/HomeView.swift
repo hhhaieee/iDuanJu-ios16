@@ -165,6 +165,11 @@ struct HomeView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            // .page 样式的内容会忽略外层 safeAreaInset（滚动视口一直顶到屏幕底），
+            // 半透明胶囊栏下面就会透出海报。这里给整个翻页容器底部留出胶囊栏高度，
+            // 让所有首页子页（红果/黄果/AI/频道/漫画/小说）的滚动视口都停在胶囊上方，
+            // 底部露出纯色背景，和搜索页一致。
+            .padding(.bottom, GlassTabBar.clearance)
         }
         .background(alignment: .top) { atmosphere }
         .background(STVTheme.bg.ignoresSafeArea())
@@ -293,10 +298,7 @@ private struct HomeFeedPage: View {
                     }.padding(.top, 4)
                 }
             }
-            // 首页内容横向套在 .tabViewStyle(.page) 里，外层 Stack 的 bottom safeAreaInset 不会穿透进来，
-            // 导致海报一直滚到半透明胶囊栏后面（不像搜索页那样底部留空）。这里手动把胶囊栏高度补上，
-            // 让内容滚到底时停在胶囊上方，底部露出纯色背景。
-            .padding(.bottom, 24 + GlassTabBar.clearance)
+            .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
         .compatDefaultScrollAnchor(Self.debugAnchor)
