@@ -293,7 +293,10 @@ private struct HomeFeedPage: View {
                     }.padding(.top, 4)
                 }
             }
-            .padding(.bottom, 24)
+            // 首页内容横向套在 .tabViewStyle(.page) 里，外层 Stack 的 bottom safeAreaInset 不会穿透进来，
+            // 导致海报一直滚到半透明胶囊栏后面（不像搜索页那样底部留空）。这里手动把胶囊栏高度补上，
+            // 让内容滚到底时停在胶囊上方，底部露出纯色背景。
+            .padding(.bottom, 24 + GlassTabBar.clearance)
         }
         .scrollIndicators(.hidden)
         .compatDefaultScrollAnchor(Self.debugAnchor)
