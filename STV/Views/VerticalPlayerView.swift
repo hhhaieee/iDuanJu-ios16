@@ -443,14 +443,13 @@ struct PlayerScreen: View {
                     pagingEnabled: co.readyIndex == co.current
                 )
             } else {
-                // Held still on the episode being left; the new episode's page stays see-through so the video
-                // layer (riding with it) is visible the moment its first frame lands — no poster cutting in.
-                // 切集过渡期间（readyIndex 尚未落到新集、prevIndex 记着刚离开的集）所有页面一律透明，
-                // 彻底不出现封面海报；首次加载（prevIndex == nil）仍保留封面预览。
-                if ((co.readyIndex == nil && co.prevIndex != nil) || i == co.heldFrame?.index || i == co.current || i == co.prevIndex) && co.errors[i] == nil {
-                    Color.clear
-                } else {
+                // 非就绪页：只在「首次加载当前集」（尚无任何就绪页）时显示封面预览；
+                // 换集过渡、以及竖屏分页拖动中相邻页滚进可视区，一律透明，绝不闪封面。
+                let firstLoad = co.readyIndex == nil && co.prevIndex == nil && i == co.current
+                if firstLoad && co.errors[i] == nil {
                     PosterBackdrop(url: series.cover)
+                } else {
+                    Color.clear
                 }
                 if let error = co.errors[i] {
                     VStack(spacing: 12) {

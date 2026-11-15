@@ -172,7 +172,7 @@ struct SourceDiagnosticsView: View {
 
     // MARK: Probing
 
-    private func timed(_ name: String, _ op: @escaping () async throws -> String) async -> Step {
+    private static func timed(_ name: String, _ op: @escaping () async throws -> String) async -> Step {
         let t0 = Date()
         do {
             let info = try await op()
@@ -189,7 +189,7 @@ struct SourceDiagnosticsView: View {
             let targets = sources.filter { selected.contains($0.rawValue) }
             for s in targets {
                 results[s.rawValue] = SourceResult(running: true)
-                let steps = await probe(s)
+                let steps = await Self.probe(s)
                 results[s.rawValue] = SourceResult(steps: steps, done: true)
             }
         }
@@ -200,12 +200,12 @@ struct SourceDiagnosticsView: View {
         Task {
             await detectTask?.value
             results[s.rawValue] = SourceResult(running: true)
-            let steps = await probe(s)
+            let steps = await Self.probe(s)
             results[s.rawValue] = SourceResult(steps: steps, done: true)
         }
     }
 
-    private func probe(_ s: DramaSource) async -> [Step] {
+    private static func probe(_ s: DramaSource) async -> [Step] {
         // 红果走「深度诊断」：会话/搜索/分页/详情/解析/取流吞吐/榜单，对齐官方 App 的调用链。
         if s == .hongguo { return await probeHongguo() }
         // 黄果走「深度诊断」（无弹幕，不检测弹幕）：搜索 → 详情 → 解析 → 流参数 → 取流吞吐 → 榜单。
@@ -215,7 +215,7 @@ struct SourceDiagnosticsView: View {
         var detail: HGSeriesDetail?
         var resolved: HGResolvedVideo?
 
-        steps.append(await timed("搜索 / 列表") {
+        steps.append(await Self.timed("搜索 / 列表") {
             switch s {
             case .hongguo:
                 let p = try await HongguoClient.shared.search("爱情")
@@ -239,7 +239,7 @@ struct SourceDiagnosticsView: View {
         })
 
         if let f = first {
-            steps.append(await timed("详情") {
+            steps.append(await Self.timed("详情") {
                 let d: HGSeriesDetail
                 switch s {
                 case .hongguo: d = try await HongguoClient.shared.detail(seriesId: f.seriesId, web: false)
@@ -256,7 +256,7 @@ struct SourceDiagnosticsView: View {
         }
 
         if let f = first, let d = detail, let ep = d.episodes.first {
-            steps.append(await timed("播放解析") {
+            steps.append(await Self.timed("播放解析") {
                 let r: HGResolvedVideo
                 switch s {
                 case .hongguo: r = try await HongguoClient.shared.resolve(vid: ep.vid)
@@ -275,7 +275,7 @@ struct SourceDiagnosticsView: View {
         }
 
         if let r = resolved, let stream = r.streams.first {
-            steps.append(await timed("媒体可达") {
+            steps.append(await Self.timed("媒体可达") {
                 let resp = try await SiteHTTP.shared.raw(stream.url, referer: stream.headers["Referer"], headers: stream.headers)
                 let code = resp.1
                 guard (200..<400).contains(code) else { throw ProviderError.upstream("HTTP \(code)") }
@@ -289,13 +289,13 @@ struct SourceDiagnosticsView: View {
 
     /// 黄果深度检测：搜索 → 详情 → 播放解析 → 流参数 → 取流吞吐 → 榜单。
     /// 黄果没有弹幕，故不做弹幕接口检测。
-    private func probeHuangguo() async -> [Step] {
+    private static func probeHuangguo() async -> [Step] {
         var steps: [Step] = []
         var first: HGSeries?
         var detail: HGSeriesDetail?
         var resolved: HGResolvedVideo?
 
-        steps.append(await timed("搜索 / 列表") {
+        steps.append(await Self.timed("搜索 / 列表") {
             let r = try await HuangguoClient.shared.search("爱")
             first = r.first
             guard !r.isEmpty else { throw ProviderError.upstream("返回 0 条") }
@@ -304,7 +304,7 @@ struct SourceDiagnosticsView: View {
 
         guard let f = first else { return steps }
 
-        steps.append(await timed("剧集详情") {
+        steps.append(await Self.timed("剧集详情") {
             let d = try await HuangguoClient.shared.detail(f)
             detail = d
             guard !d.episodes.isEmpty else { throw ProviderError.upstream("没有分集") }
@@ -313,7 +313,7 @@ struct SourceDiagnosticsView: View {
 
         guard let d = detail, let ep = d.episodes.first else { return steps }
 
-        steps.append(await timed("播放解析") {
+        steps.append(await Self.timed("播放解析") {
             let r = try await HuangguoClient.shared.resolve(seriesId: f.seriesId, episode: ep)
             resolved = r
             guard !r.streams.isEmpty else { throw ProviderError.upstream(r.err ?? "没有可用流") }
@@ -321,7 +321,7 @@ struct SourceDiagnosticsView: View {
         })
 
         if let s = resolved?.streams.first {
-            steps.append(await timed("流参数") {
+            steps.append(await Self.timed("流参数") {
                 var parts: [String] = []
                 if let q = s.quality { parts.append(q) }
                 if let w = s.width, let h = s.height { parts.append("\(w)×\(h)") }
@@ -333,12 +333,12 @@ struct SourceDiagnosticsView: View {
                 return parts.joined(separator: " · ")
             })
 
-            steps.append(await timed("取流吞吐（前 512 KB）") {
+            steps.append(await Self.timed("取流吞吐（前 512 KB）") {
                 try await Self.measure(stream: s, bytes: 512 * 1024)
             })
         }
 
-        steps.append(await timed("榜单") {
+        steps.append(await Self.timed("榜单") {
             let ch = HuangguoChannel(sub: .ai, slug: "hot", title: "热播榜", isRank: true)
             let p = try await HuangguoClient.shared.list(ch, page: 1)
             return "热播 \(p.items.count) 条" + (p.items.first.map { " · 首位《\($0.title)》" } ?? "")
@@ -351,14 +351,14 @@ struct SourceDiagnosticsView: View {
 
     /// 红果深度检测：会话 → 搜索 → 分页 → 详情 → 播放解析 → 流参数 → 取流吞吐 → 榜单。
     /// 每一步都记录真实耗时，卡在哪一环一眼能看出来。
-    private func probeHongguo() async -> [Step] {
+    private static func probeHongguo() async -> [Step] {
         var steps: [Step] = []
         var first: HGSeries?
         var page: HGPage?
         var detail: HGSeriesDetail?
         var resolved: HGResolvedVideo?
 
-        steps.append(await timed("游客会话 / 设备") {
+        steps.append(await Self.timed("游客会话 / 设备") {
             guard let dev = HGDevice.load() else {
                 throw ProviderError.upstream("未注册设备（首次使用会现场注册）")
             }
@@ -368,7 +368,7 @@ struct SourceDiagnosticsView: View {
             return "device \(dev.deviceId.prefix(6))… · 注册于\(ageText)" + (stale ? " · ⚠️ 超过 7 分钟，取流可能被软拒" : " · 会话新鲜")
         })
 
-        steps.append(await timed("搜索") {
+        steps.append(await Self.timed("搜索") {
             let p = try await HongguoClient.shared.search("爱情")
             first = p.items.first
             page = p
@@ -376,7 +376,7 @@ struct SourceDiagnosticsView: View {
             return "\(p.items.count) 条" + (p.hasMore ? " · 有下一页" : "")
         })
 
-        steps.append(await timed("搜索分页") {
+        steps.append(await Self.timed("搜索分页") {
             guard let cursor = page?.nextCursor ?? page?.nextOffset.map({ String($0) }) else {
                 return "单页结果，跳过"
             }
@@ -386,7 +386,7 @@ struct SourceDiagnosticsView: View {
 
         guard let f = first else { return steps }
 
-        steps.append(await timed("剧集详情") {
+        steps.append(await Self.timed("剧集详情") {
             let d = try await HongguoClient.shared.detail(seriesId: f.seriesId, web: false)
             detail = d
             guard !d.episodes.isEmpty else { throw ProviderError.upstream("没有分集") }
@@ -395,7 +395,7 @@ struct SourceDiagnosticsView: View {
 
         guard let d = detail, let ep = d.episodes.first else { return steps }
 
-        steps.append(await timed("播放解析") {
+        steps.append(await Self.timed("播放解析") {
             let r = try await HongguoClient.shared.resolve(vid: ep.vid)
             resolved = r
             guard !r.streams.isEmpty else {
@@ -405,7 +405,7 @@ struct SourceDiagnosticsView: View {
         })
 
         if let s = resolved?.streams.first {
-            steps.append(await timed("流参数") {
+            steps.append(await Self.timed("流参数") {
                 var parts: [String] = []
                 if let q = s.quality { parts.append(q) }
                 if let w = s.width, let h = s.height { parts.append("\(w)×\(h)") }
@@ -417,13 +417,13 @@ struct SourceDiagnosticsView: View {
                 return parts.joined(separator: " · ")
             })
 
-            steps.append(await timed("取流吞吐（前 512 KB）") {
+            steps.append(await Self.timed("取流吞吐（前 512 KB）") {
                 let r = try await Self.measure(stream: s, bytes: 512 * 1024)
                 return r
             })
         }
 
-        steps.append(await timed("榜单") {
+        steps.append(await Self.timed("榜单") {
             let p = try await HongguoClient.shared.rank(sub: .hot, genre: .all)
             return "热播 \(p.items.count) 条" + (p.items.first.map { " · 首位《\($0.title)》" } ?? "")
         })
