@@ -52,7 +52,7 @@ struct SourceDiagnosticsView: View {
                     let r = results[s.rawValue] ?? SourceResult()
                     sourceRow(s, r)
                 }
-                Text("探测顺序：搜索/列表 → 详情 → 播放解析 → 媒体可达（对第一条流做小范围 GET）。不会播放整段视频，只用于验证片源是否可用。")
+                Text("红果为深度检测：会话 → 搜索 → 分页 → 详情 → 播放解析 → 流参数 → 取流吞吐（前 512 KB）→ 榜单，可定位卡在哪一环。\n其他源为标准检测：搜索/列表 → 详情 → 播放解析 → 媒体可达。")
                     .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
             }.padding(.vertical, 12)
         }
@@ -173,6 +173,8 @@ struct SourceDiagnosticsView: View {
     }
 
     private func probe(_ s: DramaSource) async -> [Step] {
+        // 红果走「深度诊断」：会话/搜索/分页/详情/解析/取流吞吐/榜单，对齐官方 App 的调用链。
+        if s == .hongguo { return await probeHongguo() }
         var steps: [Step] = []
         var first: HGSeries?
         var detail: HGSeriesDetail?
@@ -246,6 +248,115 @@ struct SourceDiagnosticsView: View {
             })
         }
         return steps
+    }
+
+    // MARK: Hongguo deep probe
+
+    /// 红果深度检测：会话 → 搜索 → 分页 → 详情 → 播放解析 → 流参数 → 取流吞吐 → 榜单。
+    /// 每一步都记录真实耗时，卡在哪一环一眼能看出来。
+    private func probeHongguo() async -> [Step] {
+        var steps: [Step] = []
+        var first: HGSeries?
+        var page: HGPage?
+        var detail: HGSeriesDetail?
+        var resolved: HGResolvedVideo?
+
+        steps.append(await timed("游客会话 / 设备") {
+            guard let dev = HGDevice.load() else {
+                throw ProviderError.upstream("未注册设备（首次使用会现场注册）")
+            }
+            let age = dev.registeredAt.map { Int(Date().timeIntervalSince1970 - $0) } ?? -1
+            let ageText = age < 0 ? "注册时间未知" : (age > 3600 ? "\(age / 3600) 小时前" : "\(max(0, age)) 秒前")
+            let stale = dev.isStaleForPlayback
+            return "device \(dev.deviceId.prefix(6))… · 注册于\(ageText)" + (stale ? " · ⚠️ 超过 7 分钟，取流可能被软拒" : " · 会话新鲜")
+        })
+
+        steps.append(await timed("搜索") {
+            let p = try await HongguoClient.shared.search("爱情")
+            first = p.items.first
+            page = p
+            guard !p.items.isEmpty else { throw ProviderError.upstream("返回 0 条") }
+            return "\(p.items.count) 条" + (p.hasMore ? " · 有下一页" : "")
+        })
+
+        steps.append(await timed("搜索分页") {
+            guard let cursor = page?.nextCursor ?? page?.nextOffset.map({ String($0) }) else {
+                return "单页结果，跳过"
+            }
+            let p = try await HongguoClient.shared.search("爱情", cursor: cursor)
+            return "第 2 页 \(p.items.count) 条" + (p.hasMore ? " · 仍有更多" : "")
+        })
+
+        guard let f = first else { return steps }
+
+        steps.append(await timed("剧集详情") {
+            let d = try await HongguoClient.shared.detail(seriesId: f.seriesId, web: false)
+            detail = d
+            guard !d.episodes.isEmpty else { throw ProviderError.upstream("没有分集") }
+            return "《\(d.title)》· \(d.episodes.count) 集"
+        })
+
+        guard let d = detail, let ep = d.episodes.first else { return steps }
+
+        steps.append(await timed("播放解析") {
+            let r = try await HongguoClient.shared.resolve(vid: ep.vid)
+            resolved = r
+            guard !r.streams.isEmpty else {
+                throw ProviderError.upstream(r.err ?? "没有可用流")
+            }
+            return "\(r.streams.count) 条流" + (r.key?.isEmpty == false ? " · CENC" : " · 明文")
+        })
+
+        if let s = resolved?.streams.first {
+            steps.append(await timed("流参数") {
+                var parts: [String] = []
+                if let q = s.quality { parts.append(q) }
+                if let w = s.width, let h = s.height { parts.append("\(w)×\(h)") }
+                if let b = s.bitrate { parts.append(String(format: "%.1f Mbps", Double(b) / 1_000_000)) }
+                if let c = s.codec { parts.append(c) }
+                parts.append(s.kind.rawValue)
+                parts.append(s.key.isEmpty ? "未加密" : "加密(key \(s.key.count) 位)")
+                if let host = URL(string: s.url)?.host { parts.append(host) }
+                return parts.joined(separator: " · ")
+            })
+
+            steps.append(await timed("取流吞吐（前 512 KB）") {
+                let r = try await Self.measure(stream: s, bytes: 512 * 1024)
+                return r
+            })
+        }
+
+        steps.append(await timed("榜单") {
+            let p = try await HongguoClient.shared.rank(sub: .hot, genre: .all)
+            return "热播 \(p.items.count) 条" + (p.items.first.map { " · 首位《\($0.title)》" } ?? "")
+        })
+
+        return steps
+    }
+
+    /// 只读前 N 字节就断开，用来测真实 CDN 首发速度与带宽（不浪费流量）。
+    private static func measure(stream: HGStream, bytes limit: Int) async throws -> String {
+        guard let url = URL(string: stream.url), let scheme = url.scheme, ["http", "https"].contains(scheme) else {
+            throw ProviderError.upstream("流地址无效")
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue("bytes=0-\(limit - 1)", forHTTPHeaderField: "Range")
+        for (k, v) in stream.headers { req.setValue(v, forHTTPHeaderField: k) }
+        let t0 = Date()
+        let (seq, resp) = try await URLSession.shared.bytes(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<400).contains(code) else { throw ProviderError.upstream("HTTP \(code)") }
+        var got = 0
+        var firstByteMS: Double = -1
+        for try await _ in seq {
+            if got == 0 { firstByteMS = Date().timeIntervalSince(t0) * 1000 }
+            got += 1
+            if got >= limit { break }
+        }
+        let dt = max(Date().timeIntervalSince(t0), 0.001)
+        guard got > 0 else { throw ProviderError.upstream("连接成功但没有数据") }
+        let mbps = Double(got) * 8 / dt / 1_000_000
+        return String(format: "HTTP %d · %.0f KB · 首字节 %.0f ms · %.1f Mbps", code, Double(got) / 1024, firstByteMS, mbps)
     }
 
     private func report() -> String {
