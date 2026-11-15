@@ -272,7 +272,7 @@ struct SpeedPopover: View {
     /// Active core's ceiling (AetherEngine clamps video to 2×; AVPlayer 3×).
     var maxRate: Double = 3
     let onPick: (Double) -> Void
-    static let portraitSteps: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
+    static let portraitSteps: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -289,8 +289,13 @@ struct SpeedPopover: View {
     }
 
     static func label(_ r: Double) -> String {
-        let s = r == Double(Int(r)) ? "\(Int(r))×" : (String(format: "%g", r) + "×")
+        let s = short(r)
         return r == 1 ? s + " 正常速度" : s
+    }
+
+    /// 紧凑形式（播放器图标位显示用）：1×、1.5×、2×…
+    static func short(_ r: Double) -> String {
+        (r == Double(Int(r)) ? "\(Int(r))×" : (String(format: "%g", r) + "×"))
     }
 }
 
