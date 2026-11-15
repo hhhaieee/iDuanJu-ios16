@@ -9,6 +9,7 @@ struct SourceDiagnosticsView: View {
         let ok: Bool
         let ms: Int
         let info: String
+        var verify: VerifyTarget? = nil
         var id: String { name }
     }
 
@@ -16,6 +17,7 @@ struct SourceDiagnosticsView: View {
         var steps: [Step] = []
         var running = false
         var done = false
+        var verifyTarget: VerifyTarget? { steps.first(where: { $0.verify != nil })?.verify }
         var allOK: Bool { done && !steps.isEmpty && steps.allSatisfy(\.ok) }
         var summary: String {
             if running { return "检测中…" }
@@ -29,6 +31,7 @@ struct SourceDiagnosticsView: View {
     @State private var selected: Set<String> = []
     @State private var running = false
     @State private var copied = false
+    @State private var verifyTarget: VerifyTarget?
 
     /// 内置源（红果/黄果/各站点/Telegram）+ 插件 + 采集站，去重。
     private var sources: [DramaSource] {
@@ -58,6 +61,9 @@ struct SourceDiagnosticsView: View {
         }
         .background(STVTheme.bg.ignoresSafeArea())
         .navigationTitle("数据源诊断").navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $verifyTarget) { t in
+            SiteVerifySheet(target: t) { Task { await recheck(t.source) } }
+        }
         .onAppear { if selected.isEmpty { selected = Set(sources.map(\.rawValue)) } }
     }
 
@@ -135,6 +141,19 @@ struct SourceDiagnosticsView: View {
                     }.padding(.leading, 18)
                 }
             }
+            if let t = r.verifyTarget, !r.running {
+                Button {
+                    verifyTarget = t
+                } label: {
+                    Label("去验证 Cloudflare", systemImage: "shield.lefthalf.filled")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(STVTheme.accentWarm, in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .padding(.leading, 18)
+                .accessibilityIdentifier("diag.verify.\(s.rawValue)")
+            }
         }
         .padding(14)
         .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 12))
@@ -157,7 +176,7 @@ struct SourceDiagnosticsView: View {
             let info = try await op()
             return Step(name: name, ok: true, ms: Int(Date().timeIntervalSince(t0) * 1000), info: info)
         } catch {
-            return Step(name: name, ok: false, ms: Int(Date().timeIntervalSince(t0) * 1000), info: error.localizedDescription)
+            return Step(name: name, ok: false, ms: Int(Date().timeIntervalSince(t0) * 1000), info: error.localizedDescription, verify: error.verifyTarget)
         }
     }
 
@@ -170,6 +189,13 @@ struct SourceDiagnosticsView: View {
             let steps = await probe(s)
             results[s.rawValue] = SourceResult(steps: steps, done: true)
         }
+    }
+
+    /// 站点验证通过后，只重测该源（不打断其它源的结果）。
+    private func recheck(_ s: DramaSource) async {
+        results[s.rawValue] = SourceResult(running: true)
+        let steps = await probe(s)
+        results[s.rawValue] = SourceResult(steps: steps, done: true)
     }
 
     private func probe(_ s: DramaSource) async -> [Step] {

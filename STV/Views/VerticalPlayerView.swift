@@ -317,7 +317,7 @@ struct PlayerScreen: View {
                 if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
                 lastShownCurrent = new
             }
-            .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil)
+            .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
         } else {
             GeometryReader { geo in
                 ScrollViewReader { proxy in
@@ -393,7 +393,7 @@ struct PlayerScreen: View {
                         // 初始定位的 scrollTo 落地后再开始响应手势滚动，避免初始 y=0 把选集拉回第一集。
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feedInitialized = true }
                     }
-                    .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil)
+                    .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
                 }
             }
             .compatSelectionFeedback(trigger: co.current)
@@ -441,7 +441,8 @@ struct PlayerScreen: View {
                         showOSD(fill ? "画面：铺满全屏" : "画面：完整自适应")
                     },
                     onVerticalSwipe: handleVerticalSwipe,
-                    onSwipeToPage: handleSwipeToPage
+                    onSwipeToPage: handleSwipeToPage,
+                    pagingEnabled: co.readyIndex == co.current
                 )
             } else {
                 // Held still on the episode being left; the new episode's page stays see-through so the video
@@ -1096,6 +1097,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
     var onVerticalSwipe: (Bool) -> Void = { _ in }
     /// 竖屏手势接管分页：落到哪一集（绝对页码）。
     var onSwipeToPage: (Int) -> Void = { _ in }
+    /// 当前集已就绪时才允许上下滑换集（加载中锁死，避免拖动拉出封面）。
+    var pagingEnabled: Bool = true
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -1123,13 +1126,15 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         c.onPinchFill = onPinchFill
         c.onVerticalSwipe = onVerticalSwipe
         c.onSwipeToPage = onSwipeToPage
+        c.pagingEnabled = pagingEnabled
         c.pinch.isEnabled = !locked && !speedMode
         // While speed HUD is up, keep catcher receiving the finger; chrome is hit-disabled.
         uiView.isUserInteractionEnabled = true
         c.longPress.isEnabled = !locked
         c.adjustPan.isEnabled = !locked
         /// 全屏（横屏）垂直轻扫 = 上下集；竖屏由手势接管分页（跟手 + 到位翻页）。
-        c.epPan.isEnabled = !locked && !speedMode
+        /// 当前集未就绪（加载中）时锁死，避免拖动拉出封面。
+        c.epPan.isEnabled = !locked && !speedMode && pagingEnabled
         c.doubleTapEnabled = !speedMode && !locked
         c.tap.isEnabled = !speedMode
     }
@@ -1149,6 +1154,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         var onVerticalSwipe: (Bool) -> Void = { _ in }
         /// 竖屏手势接管分页：落到哪一集（绝对页码）。
         var onSwipeToPage: (Int) -> Void = { _ in }
+        /// 当前集是否已就绪（就绪才允许上下滑换集）。
+        var pagingEnabled = true
         private weak var feedScroll: UIScrollView?
         private var feedBase: CGFloat = 0
         private var feedHeight: CGFloat = 0
