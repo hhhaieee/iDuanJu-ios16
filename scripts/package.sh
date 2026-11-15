@@ -50,5 +50,6 @@ if [ "${STV_SKIP_SIM:-1}" = "0" ]; then
 fi
 rm -rf "$STAGE"
 echo "version $VER ($BUILD)"
-ls -l "$IPA" "$SIMZIP"
-shasum -a 256 "$IPA" "$SIMZIP"
+ls -l "$IPA"
+shasum -a 256 "$IPA"
+if [ -n "${SIMZIP:-}" ]; then ls -l "$SIMZIP"; shasum -a 256 "$SIMZIP"; fi
