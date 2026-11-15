@@ -12,9 +12,16 @@ BUILD=$(awk -F'"' '/CURRENT_PROJECT_VERSION/{print $2; exit}' project.yml)
 xcodegen generate >/dev/null
 common=(-project STV.xcodeproj -scheme STV -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="")
 
-# -jobs 1 + singlefile（逐文件编译，禁用整包 WMO）：TDLibKit/AetherEngine 整包优化在 7GB 内存
-# 的免费编译机上会 OOM 被静默杀掉；逐文件编译内存峰值大幅下降。
-# 失败自动重试一次（增量编译，第二次直接复用已编译产物，成功率更高）。
+# 通过 XCODE_XCCONFIG_FILE 环境变量给「所有 target（含 SwiftPM 依赖包）」注入设置：
+# 命令行 -setting 对 package target 不生效，只有这个机制能关掉 TDLibKit 的整包优化（WMO），
+# 否则单个 WMO 编译单元会吃掉 10GB+ 内存被系统杀掉。
+cat > /tmp/ci-overrides.xcconfig <<'XCCONFIG'
+SWIFT_COMPILATION_MODE = singlefile
+SWIFT_OPTIMIZATION_LEVEL = -O
+XCCONFIG
+export XCODE_XCCONFIG_FILE=/tmp/ci-overrides.xcconfig
+# -jobs 1 限制并行编译目标数，降低内存峰值。
+# 失败自动重试（增量编译，第二次直接复用已编译产物，成功率更高）。
 try_build() {
   local log="$1"; shift
   local attempt=1
