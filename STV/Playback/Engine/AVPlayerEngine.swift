@@ -125,6 +125,14 @@ import UIKit
     var isWaiting: Bool { player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
     var isPaused: Bool { player.timeControlStatus == .paused }
     var muted: Bool { get { player.isMuted } set { player.isMuted = newValue } }
+    var volume: Float {
+        get { player.volume }
+        set {
+            let v = min(1, max(0, newValue))
+            player.volume = v
+            if v > 0, player.isMuted { player.isMuted = false }
+        }
+    }
     var maxRate: Double { 3.0 }
     var fill: Bool = false {
         didSet { view.playerLayer.videoGravity = fill ? .resizeAspectFill : .resizeAspect }
