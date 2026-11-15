@@ -669,8 +669,10 @@ struct PlayerScreen: View {
     @ViewBuilder private func iconRow(_ i: Int) -> some View {
         let items = HStack(spacing: landscape ? 6 : 0) {
             slot { PlayerRowIcon(id: "player.rate", a11y: "播放倍速 " + SpeedPopover.label(co.playbackRate), active: panel == .rates, action: { toggle(.rates) }) {
-                if co.playbackRate == 1 { Image(systemName: "gauge.with.dots.needle.33percent").font(.system(size: 19)) }
-                else { Text(SpeedPopover.label(co.playbackRate)).font(.system(size: 14, weight: .bold)).foregroundStyle(STVTheme.accent) }
+                // 始终显示当前倍速文字（如 1×/1.5×），让入口一眼可见；非 1× 时高亮。
+                Text(SpeedPopover.short(co.playbackRate))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(co.playbackRate == 1 ? Color.white : STVTheme.accent)
             } }
             slot { PlayerRowIcon(id: "player.quality", a11y: "画质与播放源", active: panel == .quality, action: { toggle(.quality) }) { OutlinedTag(text: qualityTag) } }
             slot { PlayerRowIcon(id: "player.audio", a11y: "音轨", active: panel == .audio, action: { toggle(.audio) }) {
