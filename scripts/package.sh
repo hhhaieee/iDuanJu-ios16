@@ -14,10 +14,21 @@ common=(-project STV.xcodeproj -scheme STV -configuration Release CODE_SIGNING_A
 
 # -jobs 1 + singlefile（逐文件编译，禁用整包 WMO）：TDLibKit/AetherEngine 整包优化在 7GB 内存
 # 的免费编译机上会 OOM 被静默杀掉；逐文件编译内存峰值大幅下降。
-xcodebuild "${common[@]}" -jobs 1 -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath DerivedDataRelease SWIFT_COMPILATION_MODE=singlefile build 2>&1 | tee /tmp/stv-package-ios.log
+# 失败自动重试一次（增量编译，第二次直接复用已编译产物，成功率更高）。
+try_build() {
+  local log="$1"; shift
+  local attempt=1
+  until xcodebuild "$@" 2>&1 | tee "$log"; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -gt 3 ]; then echo "build failed after 3 attempts"; return 1; fi
+    echo "=== build attempt $attempt (incremental) ==="
+    sleep 5
+  done
+}
+try_build /tmp/stv-package-ios.log "${common[@]}" -jobs 1 -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath DerivedDataRelease SWIFT_COMPILATION_MODE=singlefile build
 # 模拟器构建仅用于 simulator.app.zip（TrollStore 用不到），跳过以省一半编译时间与内存。
 if [ "${STV_SKIP_SIM:-1}" = "0" ]; then
-  xcodebuild "${common[@]}" -jobs 1 -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedDataRelease SWIFT_COMPILATION_MODE=singlefile build 2>&1 | tee /tmp/stv-package-sim.log
+  try_build /tmp/stv-package-sim.log "${common[@]}" -jobs 1 -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedDataRelease SWIFT_COMPILATION_MODE=singlefile build
 fi
 
 STAGE=$(mktemp -d)
