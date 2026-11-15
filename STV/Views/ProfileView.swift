@@ -5,6 +5,7 @@ struct ProfileView: View {
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var gate = SourceGate.shared
     @ObservedObject private var proxy = ProxySettings.shared
+    @EnvironmentObject private var appearance: AppearanceModel
 
     var body: some View {
         ScrollView {
@@ -40,6 +41,7 @@ struct ProfileView: View {
                          trailing: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : "红果 · 黄果")
                     link("插件", "puzzlepiece.extension", .plugins, trailing: pluginTrailing)
                     link("数据源诊断", "stethoscope", .diagnostics)
+                    link("外观与主题", "paintpalette", .appearance, trailing: appearance.theme.label)
                     link("开源许可", "doc.text", .licenses)
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))

@@ -1080,7 +1080,7 @@ struct PiPPlaceholder: View {
             VStack(spacing: 12) {
                 Image(systemName: "pip")
                     .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(STVTheme.accent)
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white)
@@ -1097,7 +1097,7 @@ struct PiPPlaceholder: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
-                        .background(Color.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(STVTheme.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .accessibilityIdentifier("player.pipResume")
                 Button(action: onExit) {

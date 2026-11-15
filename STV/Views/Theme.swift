@@ -81,3 +81,51 @@ struct GlassChipBar<T: Hashable>: View {
         }
     }
 }
+
+// MARK: - 外观（主题模式）
+
+/// 用户可选的界面外观：跟随系统 / 浅色 / 深色。
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .system: "跟随系统"
+        case .light: "浅色模式"
+        case .dark: "深色模式"
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case .system: "随设备的深色或浅色模式自动切换视觉主题"
+        case .light: "清爽明亮界面，适合白天或明亮环境阅读与挑选短剧"
+        case .dark: "沉浸式暗黑背景，适合夜晚观剧，低功耗防眩光"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .system: "circle.lefthalf.filled"
+        case .light: "sun.max.fill"
+        case .dark: "moon.fill"
+        }
+    }
+    /// nil = 跟随系统，由 SwiftUI 自动解析。
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+/// 全局外观设置。App 根部持有一个 `@StateObject`，切换时驱动 `.preferredColorScheme`。
+final class AppearanceModel: ObservableObject {
+    static let key = "stv.appearance.theme"
+    @Published var theme: AppTheme {
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: Self.key) }
+    }
+    init() {
+        theme = UserDefaults.standard.string(forKey: Self.key).flatMap(AppTheme.init(rawValue:)) ?? .system
+    }
+}

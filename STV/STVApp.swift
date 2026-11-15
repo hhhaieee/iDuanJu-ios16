@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct STVApp: App {
     @UIApplicationDelegateAdaptor(OrientationGate.self) private var orientation
+    @StateObject private var appearance = AppearanceModel()
     init() {
         CrashReporter.install()
         CFSolver.install()
@@ -52,6 +53,7 @@ struct STVApp: App {
                 }
             }
             .tint(STVTheme.accent)
+            .preferredColorScheme(appearance.theme.colorScheme)
             .task {
                 await CFCookies.restoreFromWebKit()
                 #if DEBUG
@@ -73,6 +75,7 @@ struct STVApp: App {
             }
             .background(STVTheme.bg)
             .background(TabBarHider())
+            .environmentObject(appearance)
         }
     }
 }
