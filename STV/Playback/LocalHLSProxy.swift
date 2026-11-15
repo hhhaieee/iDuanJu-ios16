@@ -566,7 +566,9 @@ final class LocalHLSProxy: @unchecked Sendable {
     static func aesCBCDecrypt(_ data: Data, key: Data, iv: Data) -> Data? {
         guard key.count == kCCKeySizeAES128, iv.count == kCCBlockSizeAES128,
               !data.isEmpty, data.count % kCCBlockSizeAES128 == 0 else { return nil }
-        var out = Data(count: data.count + kCCBlockSizeAES128)
+        let capacity = data.count + kCCBlockSizeAES128
+        let inputSize = data.count
+        var out = Data(count: capacity)
         var moved = 0
         let status = key.withUnsafeBytes { kb -> CCCryptorStatus in
             let k = kb.bindMemory(to: UInt8.self).baseAddress!
@@ -577,13 +579,13 @@ final class LocalHLSProxy: @unchecked Sendable {
                     return out.withUnsafeMutableBytes { ob -> CCCryptorStatus in
                         let o = ob.bindMemory(to: UInt8.self).baseAddress!
                         return CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
-                                       k, key.count, i, d, data.count, o, out.count, &moved)
+                                       k, key.count, i, d, inputSize, o, capacity, &moved)
                     }
                 }
             }
         }
-        guard status == kCCSuccess, moved > 0 else { return nil }
-        out.removeSubrange(moved..<out.count)
+        guard status == kCCSuccess, moved > 0, moved <= capacity else { return nil }
+        out.removeSubrange(moved..<capacity)
         return out
     }
 
