@@ -72,6 +72,8 @@ struct MediaTrack: Identifiable, Hashable, Sendable {
     var isWaiting: Bool { get }
     var isPaused: Bool { get }
     var muted: Bool { get set }
+    /// App-level playback volume (0...1). Independent from the system volume, always effective.
+    var volume: Float { get set }
     var maxRate: Double { get }
     var fill: Bool { get set }
 
