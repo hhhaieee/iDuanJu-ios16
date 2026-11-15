@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 
 /// 播放页全屏期间隐藏底部白色 Home 指示条（退出后恢复）。
 ///
@@ -30,7 +31,7 @@ enum HomeIndicatorSuppress {
         // 除了基类，还要覆盖会 override 该 getter 的常见容器（子类 override 不会被基类替换命中）。
         let classes: [AnyClass] = [
             UIViewController.self, UINavigationController.self, UITabBarController.self,
-            UISplitViewController.self, UIPageViewController.self,
+            UISplitViewController.self, UIPageViewController.self, UIHostingController.self,
         ]
         for cls in classes {
             if let method = class_getInstanceMethod(cls, sel) { method_setImplementation(method, imp) }

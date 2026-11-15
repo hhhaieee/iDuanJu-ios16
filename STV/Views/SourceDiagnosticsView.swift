@@ -175,6 +175,8 @@ struct SourceDiagnosticsView: View {
     private func probe(_ s: DramaSource) async -> [Step] {
         // 红果走「深度诊断」：会话/搜索/分页/详情/解析/取流吞吐/榜单，对齐官方 App 的调用链。
         if s == .hongguo { return await probeHongguo() }
+        // 黄果走「深度诊断」（无弹幕，不检测弹幕）：搜索 → 详情 → 解析 → 流参数 → 取流吞吐 → 榜单。
+        if s == .huangguo { return await probeHuangguo() }
         var steps: [Step] = []
         var first: HGSeries?
         var detail: HGSeriesDetail?
@@ -247,6 +249,68 @@ struct SourceDiagnosticsView: View {
                 return "HTTP \(code) · 响应 \(resp.0.count) 字节"
             })
         }
+        return steps
+    }
+
+    // MARK: Huangguo deep probe
+
+    /// 黄果深度检测：搜索 → 详情 → 播放解析 → 流参数 → 取流吞吐 → 榜单。
+    /// 黄果没有弹幕，故不做弹幕接口检测。
+    private func probeHuangguo() async -> [Step] {
+        var steps: [Step] = []
+        var first: HGSeries?
+        var detail: HGSeriesDetail?
+        var resolved: HGResolvedVideo?
+
+        steps.append(await timed("搜索 / 列表") {
+            let r = try await HuangguoClient.shared.search("爱")
+            first = r.first
+            guard !r.isEmpty else { throw ProviderError.upstream("返回 0 条") }
+            return "\(r.count) 条"
+        })
+
+        guard let f = first else { return steps }
+
+        steps.append(await timed("剧集详情") {
+            let d = try await HuangguoClient.shared.detail(f)
+            detail = d
+            guard !d.episodes.isEmpty else { throw ProviderError.upstream("没有分集") }
+            return "《\(d.title)》· \(d.episodes.count) 集"
+        })
+
+        guard let d = detail, let ep = d.episodes.first else { return steps }
+
+        steps.append(await timed("播放解析") {
+            let r = try await HuangguoClient.shared.resolve(seriesId: f.seriesId, episode: ep)
+            resolved = r
+            guard !r.streams.isEmpty else { throw ProviderError.upstream(r.err ?? "没有可用流") }
+            return "\(r.streams.count) 条流" + (r.key?.isEmpty == false ? " · CENC" : " · 明文")
+        })
+
+        if let s = resolved?.streams.first {
+            steps.append(await timed("流参数") {
+                var parts: [String] = []
+                if let q = s.quality { parts.append(q) }
+                if let w = s.width, let h = s.height { parts.append("\(w)×\(h)") }
+                if let b = s.bitrate { parts.append(String(format: "%.1f Mbps", Double(b) / 1_000_000)) }
+                if let c = s.codec { parts.append(c) }
+                parts.append(s.kind.rawValue)
+                parts.append(s.key.isEmpty ? "未加密" : "加密(key \(s.key.count) 位)")
+                if let host = URL(string: s.url)?.host { parts.append(host) }
+                return parts.joined(separator: " · ")
+            })
+
+            steps.append(await timed("取流吞吐（前 512 KB）") {
+                try await Self.measure(stream: s, bytes: 512 * 1024)
+            })
+        }
+
+        steps.append(await timed("榜单") {
+            let ch = HuangguoChannel(sub: .ai, slug: "hot", title: "热播榜", isRank: true)
+            let p = try await HuangguoClient.shared.list(ch, page: 1)
+            return "热播 \(p.items.count) 条" + (p.items.first.map { " · 首位《\($0.title)》" } ?? "")
+        })
+
         return steps
     }
 

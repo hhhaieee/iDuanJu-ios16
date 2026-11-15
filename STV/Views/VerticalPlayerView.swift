@@ -52,8 +52,6 @@ struct PlayerScreen: View {
     @State private var previewRate: Double = 1.0
     @State private var pendingLock = false
     @State private var pendingCancel = false
-    @State private var speedBaseIndex = 0
-    @State private var lastStepOffset = 0
     /// Portrait feed content offset (pt): the shared video layer rides along with the page being swiped.
     @State private var feedScrollY: CGFloat = 0
     @State private var feedSettleWork: DispatchWorkItem?
@@ -166,13 +164,6 @@ struct PlayerScreen: View {
                                 .transition(.opacity)
                         }
                         controls(full, ins: ins).transition(.opacity)
-                    } else if co.readyIndex != nil, !speedMode, co.paused {
-                        // Chrome hidden: a 2 pt hairline at the bottom edge — only while paused,
-                        // so the screen stays clean during playback (user request: the line must fade away).
-                        PlayerProgressBar(co: co, scrubbing: .constant(false), mini: true)
-                            .frame(width: full.width - (landscape ? 120 : 0))
-                            .position(x: full.width / 2, y: full.height - (landscape ? max(ins.bottom, 6) : 1))
-                            .allowsHitTesting(false).transition(.opacity)
                     }
                     if let p = panel, !locked {
                         popover(p, full: full, ins: ins)
@@ -915,10 +906,8 @@ struct PlayerScreen: View {
     private let edgeBackWidth: CGFloat = 36
 
     private func enterSpeedMode() {
-        let base = co.lockedRate ?? co.playbackRate
-        previewRate = base
-        speedBaseIndex = PlaybackCoordinator.stepIndex(of: base)
-        lastStepOffset = 0
+        // 长按 = 固定 2 倍速（不再拖拽调速），松开恢复原倍速/1x。
+        previewRate = 2.0
         pendingLock = false
         pendingCancel = false
         speedMode = true
@@ -928,35 +917,7 @@ struct PlayerScreen: View {
     }
 
     private func handleSpeedTranslation(_ translation: CGSize) {
-        let dx = translation.width
-        let dy = translation.height
-        let absX = abs(dx)
-        let absY = abs(dy)
-        if absY > 56, absY > absX * 1.15 {
-            if dy < -56 {
-                pendingLock = true
-                pendingCancel = false
-            } else if dy > 56 {
-                pendingCancel = true
-                pendingLock = false
-            }
-        } else if absX > 28 {
-            pendingLock = false
-            pendingCancel = false
-            let stepPts: CGFloat = 44
-            let offset = Int((dx / stepPts).rounded(.towardZero))
-            if offset != lastStepOffset {
-                lastStepOffset = offset
-                let top = PlaybackCoordinator.rateSteps.lastIndex { $0 <= co.engine.maxRate + 0.001 } ?? PlaybackCoordinator.rateSteps.count - 1
-                let idx = max(0, min(top, speedBaseIndex + offset))
-                let next = PlaybackCoordinator.rateSteps[idx]
-                if next != previewRate {
-                    previewRate = next
-                    co.applyRate(next)
-                    UISelectionFeedbackGenerator().selectionChanged()
-                }
-            }
-        }
+        // 长按固定 2x，拖拽不再改变倍速。
     }
 
     private func endSpeedMode() {
@@ -966,16 +927,6 @@ struct PlayerScreen: View {
                 pendingLock = false
                 pendingCancel = false
             }
-        }
-        if pendingCancel {
-            co.unlockRate()
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            return
-        }
-        if pendingLock {
-            co.lockRate(previewRate)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            return
         }
         co.restoreLockedOrNormal()
     }
