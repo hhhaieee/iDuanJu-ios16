@@ -7,7 +7,8 @@ actor HongguoClient {
     static let shared = HongguoClient()
 
     private let session: URLSession
-    /// Player batch only: bypass system proxy (proxied requests get 200 + 0 bytes; direct streams).
+    /// 取流会话（播放解析）。跟随「网络代理」设置：红果取流接口按出口 IP 地区风控，
+    /// 大陆直连会返回 200 + 空包（软拒绝），走香港/海外代理出口即可通过。
     let playerSession: URLSession
     private var device: HGDevice?
     private var registering: Task<HGDevice, Error>?
@@ -31,11 +32,9 @@ actor HongguoClient {
         pcfg.timeoutIntervalForRequest = 20
         pcfg.httpCookieStorage = nil
         pcfg.httpShouldSetCookies = false
-        // Empty dict alone does not defeat Clash TUN/fake-ip; still disable URLSession-level HTTP/HTTPS/SOCKS.
-        pcfg.connectionProxyDictionary = [
-            "HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0,
-            "HTTPProxy": "", "HTTPSProxy": "", "SOCKSProxy": ""
-        ]
+        // 取流同样跟随「网络代理」：不开代理时保持直连（与旧行为一致），
+        // 开代理后取流也走代理出口，从而绕过红果对大陆直连 IP 的软拒绝。
+        ProxySettings.shared.apply(to: pcfg)
         playerSession = URLSession(configuration: pcfg)
     }
 
@@ -711,7 +710,6 @@ actor HongguoClient {
             req.setValue("101", forHTTPHeaderField: "lc")
             req.setValue("\(nowMs)-\(Int64(now.timeIntervalSince1970 * 1_000_000_000) & 0x7fffffff)", forHTTPHeaderField: "x-reading-request")
             do {
-                // Same no-proxy session as batch — system proxy/SOCKS yields 200 empty on this Mac.
                 let (data, resp) = try await playerSession.data(for: req)
                 let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 if status == 429 || status >= 500 { last = ProviderError.upstream("video_model HTTP \(status)"); continue }
@@ -798,7 +796,6 @@ actor HongguoClient {
         req.setValue("0", forHTTPHeaderField: "X-XS-From-Web")
         req.setValue("2", forHTTPHeaderField: "Sdk-Version")
         for (k, v) in HGSign.videoModelHeaders(rawQuery: q, body: Array(body), now: now) { req.setValue(v, forHTTPHeaderField: k) }
-        // Same no-proxy session as batch — system proxy/SOCKS yields 200 empty on this Mac.
         let (data, resp) = try await playerSession.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if data.isEmpty {
