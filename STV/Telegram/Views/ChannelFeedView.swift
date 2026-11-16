@@ -5,7 +5,6 @@ import SwiftUI
 struct ChannelFeedView: View {
     var embedded = false
     @ObservedObject private var store = TGStore.shared
-    @ObservedObject private var gate = SourceGate.shared
     @State private var only: String?
     @State private var viewer: ViewerPayload?
     @State private var blockTarget: TGPost?
@@ -166,9 +165,6 @@ struct ChannelFeedView: View {
                     if store.add(addText) != nil { addText = ""; Task { await store.refresh() } } else { toast = "无效的频道名" }
                 }.buttonStyle(.borderedProminent).tint(STVTheme.accent).accessibilityIdentifier("tg.empty.add")
             }.padding(.horizontal, 30)
-            if !gate.showAdultChannels && store.channels.contains(where: \.isAdult) {
-                Text("预置的成人频道已隐藏：我的 → 片源管理 → 成人 Telegram 频道").font(.caption2).foregroundStyle(STVTheme.secondary)
-            }
         }.frame(maxWidth: .infinity).padding(.top, 50)
     }
 }

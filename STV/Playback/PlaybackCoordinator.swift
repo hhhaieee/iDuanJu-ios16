@@ -862,6 +862,9 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         setPaused(interrupted ? false : !paused)
     }
 
+    /// 定时暂停（睡眠定时）：确定性地暂停，仅播放中生效。
+    func pause() { if !paused { setPaused(true) } }
+
     private func setPaused(_ value: Bool) {
         paused = value
         if value {

@@ -38,10 +38,10 @@ struct SourceDiagnosticsView: View {
     @ObservedObject private var gate = SourceGate.shared
 
     /// 只显示当前已开启的片源（红果始终开启；黄果与成人站跟随「片源管理」开关），
-    /// 顺序跟随「片源管理 → 首页片源顺序」；Telegram 频道源始终可用，排在末尾。
+    /// 顺序跟随「片源管理 → 首页片源顺序」；Telegram 频道源跟随「成人 Telegram 频道」开关，开启才显示。
     private var sources: [DramaSource] {
         var out = gate.searchSources
-        if !out.contains(.telegram) { out.append(.telegram) }
+        if gate.showAdultChannels, !out.contains(.telegram) { out.append(.telegram) }
         return out
     }
 

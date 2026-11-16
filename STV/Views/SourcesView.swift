@@ -11,6 +11,7 @@ struct SourcesView: View {
     @State private var engineKind = PlayerEngineSettings.preferred
     /// 18+ 片源分组默认隐藏，长按「红果短剧」3 秒后显示。
     @State private var adultRevealed = false
+    @State private var sleepMinutes = SleepTimerSettings.minutes
 
     var body: some View {
         ScrollView {
@@ -44,13 +45,15 @@ struct SourcesView: View {
                             HStack { label("插件管理", "puzzlepiece.extension", sub: "JS 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示"); Spacer(); chevron }.padding(14)
                         }.buttonStyle(.plain).accessibilityIdentifier("sources.plugins")
                     }
-                    group("频道与漫画（默认隐藏）") {
-                        Toggle(isOn: Binding(get: { gate.adultChannels }, set: { gate.setAdultChannels($0) })) {
-                            label("成人 Telegram 频道", "paperplane", sub: "预置 @bhg1232 / @NudefilmsTV 及你标记为成人的频道；开启后才出现在「频道」")
-                        }.padding(14).accessibilityIdentifier("sources.adultChannels")
-                        Toggle(isOn: Binding(get: { gate.adultManga }, set: { gate.setAdultManga($0) })) {
-                            label("成人漫画源", "book.closed", sub: "控制成人漫画插件（内置推荐：Manga18fx / Komikindo / 18comic）；插件结果一律过滤未成年人相关标签")
-                        }.padding(14)
+                    if adultRevealed {
+                        group("频道与漫画（默认隐藏）") {
+                            Toggle(isOn: Binding(get: { gate.adultChannels }, set: { gate.setAdultChannels($0) })) {
+                                label("成人 Telegram 频道", "paperplane", sub: "预置 @bhg1232 / @NudefilmsTV 及你标记为成人的频道；开启后才出现在「频道」")
+                            }.padding(14).accessibilityIdentifier("sources.adultChannels")
+                            Toggle(isOn: Binding(get: { gate.adultManga }, set: { gate.setAdultManga($0) })) {
+                                label("成人漫画源", "book.closed", sub: "控制成人漫画插件（内置推荐：Manga18fx / Komikindo / 18comic）；插件结果一律过滤未成年人相关标签")
+                            }.padding(14)
+                        }
                     }
                     Text("开启后，该站会出现在「发现」顶部标签和「搜索」结果来源里；关闭后收藏、观看记录仍保留在本机，只是不再显示。所有请求由本机直连站点，部分站点需要先在内置浏览器完成一次 Cloudflare 验证。")
                         .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
@@ -74,6 +77,15 @@ struct SourcesView: View {
                             }
                             .pickerStyle(.segmented)
                             .accessibilityIdentifier("settings.engine")
+                        }.padding(14)
+                        VStack(alignment: .leading, spacing: 10) {
+                            label("定时暂停", "timer", sub: "在播放器的「更多」菜单里打开「定时开关」后，到点自动暂停视频")
+                            Picker("定时时长", selection: $sleepMinutes) {
+                                ForEach(SleepTimerSettings.options, id: \.self) { m in Text("\(m) 分").tag(m) }
+                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityIdentifier("settings.sleeptimer")
+                            .onChange(of: sleepMinutes) { v in SleepTimerSettings.minutes = v }
                         }.padding(14)
                         actionRow("清空预缓冲缓存（\(ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file))，上限 2GB）", "externaldrive.badge.xmark") {
                             PrefetchStore.shared.clearAll()

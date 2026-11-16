@@ -32,7 +32,8 @@ struct PlayerScreen: View {
     @AppStorage("stv.player.fill") private var fillScreen = true
     /// Technical info strip (⋯ → 技术信息).
     @AppStorage("stv.player.tech") private var showTech = true
-    @State private var muted = false
+    @State private var sleepActive = false
+    @State private var sleepTask: Task<Void, Never>?
     @State private var osd: String?
     @State private var verifyTarget: VerifyTarget?
     @StateObject private var adjuster = PlayerAdjuster()
@@ -243,6 +244,8 @@ struct PlayerScreen: View {
             adjuster.appVolumeSet = { v in co.setVolume(Float(v)) }
         }
         .onDisappear {
+            sleepTask?.cancel()
+            sleepActive = false
             HomeIndicatorSuppress.set(false)
             adjuster.restoreBrightness()
             OrientationGate.lockPortrait()
@@ -644,8 +647,8 @@ struct PlayerScreen: View {
             Button { fillScreen.toggle(); showOSD(fillScreen ? "画面：铺满全屏" : "画面：完整自适应") } label: {
                 Label(fillScreen ? "完整自适应" : "铺满全屏", systemImage: fillScreen ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
             }
-            Button { muted.toggle(); co.setMuted(muted); showOSD(muted ? "已静音" : "已取消静音") } label: {
-                Label(muted ? "取消静音" : "静音", systemImage: muted ? "speaker.wave.2" : "speaker.slash")
+            Toggle(isOn: Binding(get: { sleepActive }, set: { setSleep($0) })) {
+                Label(sleepActive ? "定时开关（\(SleepTimerSettings.minutes) 分）" : "定时开关", systemImage: "timer")
             }
             if series.source == .hongguo {
                 Button { danmakuSheet = true } label: { Label("弹幕设置", systemImage: "slider.horizontal.3") }
@@ -666,6 +669,29 @@ struct PlayerScreen: View {
         }
         .accessibilityLabel("更多").accessibilityIdentifier("player.more")
         .simultaneousGesture(TapGesture().onEnded { flashChrome() })
+    }
+
+    /// 睡眠定时：开启后到点暂停视频（暂停后 iOS 可正常自动熄屏）。
+    private func setSleep(_ on: Bool) {
+        sleepTask?.cancel()
+        sleepTask = nil
+        if on {
+            let minutes = SleepTimerSettings.minutes
+            sleepActive = true
+            let coord = co
+            sleepTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                coord.pause()
+                sleepActive = false
+                sleepTask = nil
+                showOSD("定时结束，已暂停")
+            }
+            showOSD("已开启定时（\(minutes) 分）")
+        } else {
+            sleepActive = false
+            showOSD("已关闭定时")
+        }
     }
 
     // MARK: Caption pieces

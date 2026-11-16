@@ -24,6 +24,16 @@ enum PlayerEngineSettings {
     }
 }
 
+/// 定时暂停时长（片源管理 → 播放设置），决定播放器「定时开关」开启后多久暂停视频。
+enum SleepTimerSettings {
+    static let key = "stv.player.sleepMinutes"
+    static let options = [30, 60, 120]
+    static var minutes: Int {
+        get { UserDefaults.standard.object(forKey: key) as? Int ?? 30 }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
 /// One audio / subtitle track, engine-neutral (Aether `TrackInfo` or an `AVMediaSelectionOption`).
 struct MediaTrack: Identifiable, Hashable, Sendable {
     let id: Int
