@@ -235,7 +235,7 @@ struct TGRulesView: View {
                 }.onDelete { store.removeRules(at: $0) }
             }
             Section("导入 / 导出") {
-                ShareLink(item: store.exportText, preview: SharePreview("i短剧 频道屏蔽规则")) { Label("导出（JSON）", systemImage: "square.and.arrow.up") }
+                ShareLink(item: store.exportText, preview: SharePreview("黑果夜剧 频道屏蔽规则")) { Label("导出（JSON）", systemImage: "square.and.arrow.up") }
                 Button { UIPasteboard.general.string = store.exportText; message = "已复制到剪贴板" } label: { Label("复制规则 JSON", systemImage: "doc.on.doc") }
                 Button {
                     let n = store.importText(UIPasteboard.general.string ?? ""); message = n > 0 ? "已导入 \(n) 条" : "剪贴板里没有可识别的规则"

@@ -35,11 +35,13 @@ struct SourceDiagnosticsView: View {
     /// 主检测循环（串行）。验证后重测会等它跑完再执行，避免两个源并发检测卡死闪退。
     @State private var detectTask: Task<Void, Never>?
 
-    /// 内置源（红果/黄果/各站点/Telegram）+ 插件 + 采集站，去重。
+    @ObservedObject private var gate = SourceGate.shared
+
+    /// 只显示当前已开启的片源（红果始终开启；黄果与成人站跟随「片源管理」开关），
+    /// 顺序跟随「片源管理 → 首页片源顺序」；Telegram 频道源始终可用，排在末尾。
     private var sources: [DramaSource] {
-        var seen = Set<String>()
-        var out: [DramaSource] = []
-        for s in DramaSource.builtins + Sites.all where seen.insert(s.rawValue).inserted { out.append(s) }
+        var out = gate.searchSources
+        if !out.contains(.telegram) { out.append(.telegram) }
         return out
     }
 

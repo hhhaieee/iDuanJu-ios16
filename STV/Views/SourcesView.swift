@@ -9,6 +9,8 @@ struct SourcesView: View {
     @State private var cacheBytes: Int64 = 0
     @State private var adStrip = HLSAdFilter.enabled
     @State private var engineKind = PlayerEngineSettings.preferred
+    /// 18+ 片源分组默认隐藏，长按「红果短剧」3 秒后显示。
+    @State private var adultRevealed = false
 
     var body: some View {
         ScrollView {
@@ -18,17 +20,24 @@ struct SourcesView: View {
                 } else {
                     group("内置") {
                         builtinRow(.hongguo, "play.rectangle.on.rectangle")
+                            .contentShape(Rectangle())
+                            .onLongPressGesture(minimumDuration: 3) {
+                                adultRevealed = true
+                                message = "已显示 18+ 片源"
+                            }
                     }
                     group("首页片源顺序") {
                         NavigationLink(value: Route.homeSourceOrder) {
                             HStack { label("调整首页标签顺序", "arrow.up.arrow.down", sub: "拖动调整红果、黄果、AI剧及各片源在首页顶部标签的排列顺序"); Spacer(); chevron }.padding(14)
                         }.buttonStyle(.plain).accessibilityIdentifier("sources.homeOrder")
                     }
-                    group("18+ 片源（默认隐藏）") {
-                        Toggle(isOn: Binding(get: { gate.huangguo }, set: { gate.setHuangguo($0) })) {
-                            label(DramaSource.huangguo.label, "film.stack", sub: "18+ · 视频站 / App 源 / AI 站；开启后出现在「发现」「搜索」和 AI剧")
-                        }.padding(14).accessibilityIdentifier("sources.huangguo")
-                        ForEach(Sites.all.filter(\.isAdult)) { s in siteRow(s) }
+                    if adultRevealed {
+                        group("18+ 片源（默认隐藏）") {
+                            Toggle(isOn: Binding(get: { gate.huangguo }, set: { gate.setHuangguo($0) })) {
+                                label(DramaSource.huangguo.label, "film.stack", sub: "18+ · 视频站 / App 源 / AI 站；开启后出现在「发现」「搜索」和 AI剧")
+                            }.padding(14).accessibilityIdentifier("sources.huangguo")
+                            ForEach(Sites.all.filter(\.isAdult)) { s in siteRow(s) }
+                        }
                     }
                     group("插件与采集站") {
                         NavigationLink(value: Route.plugins) {
@@ -283,7 +292,7 @@ struct LicensesView: View {
                         .font(.subheadline).foregroundStyle(STVTheme.secondary)
                     Link("github.com/Alos21750/UAV-Downloader", destination: URL(string: "https://github.com/Alos21750/UAV-Downloader")!)
                         .font(.subheadline).tint(STVTheme.accent)
-                    Text("i短剧 的 MissAV / Jable / SupJav / Hanime1 解析逻辑移植并改写自该项目（基于 commit de92300（2026-11-10 复查仍为最新），Python → Swift，HTML 解析改为正则）。修改内容：站点列表、详情与播放地址解析的 Swift 重写，以及与 i短剧 播放器的对接。")
+                    Text("黑果夜剧 的 MissAV / Jable / SupJav / Hanime1 解析逻辑移植并改写自该项目（基于 commit de92300（2026-11-10 复查仍为最新），Python → Swift，HTML 解析改为正则）。修改内容：站点列表、详情与播放地址解析的 Swift 重写，以及与 黑果夜剧 播放器的对接。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
                     Button(expanded ? "收起许可证全文" : "查看 Apache-2.0 全文") { withAnimation { expanded.toggle() } }
                         .font(.subheadline.weight(.semibold)).tint(STVTheme.accent)

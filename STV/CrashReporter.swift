@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /// 极简崩溃记录器：把未捕获异常和致命信号的调用堆栈写到 Documents/crash.log。
-/// 配合 Info.plist 里的 UIFileSharingEnabled，用户可以在「文件」App → 我的 iPhone → i短剧 里
+/// 配合 Info.plist 里的 UIFileSharingEnabled，用户可以在「文件」App → 我的 iPhone → 黑果夜剧 里
 /// 找到 crash.log 并导出，方便远程定位闪退原因。
 enum CrashReporter {
     static func install() {

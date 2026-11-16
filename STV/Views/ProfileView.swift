@@ -94,7 +94,7 @@ struct ProfileView: View {
 
     static var versionText: String {
         let i = Bundle.main.infoDictionary
-        return "i短剧 \(i?["CFBundleShortVersionString"] as? String ?? "") (\(i?["CFBundleVersion"] as? String ?? ""))"
+        return "黑果夜剧 \(i?["CFBundleShortVersionString"] as? String ?? "") (\(i?["CFBundleVersion"] as? String ?? ""))"
     }
 
     private func link(_ t: String, _ icon: String, _ r: Route, trailing: String? = nil) -> some View {

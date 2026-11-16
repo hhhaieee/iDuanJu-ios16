@@ -13,7 +13,7 @@ enum DebugPlugins {
     static func demoManifest(version: String, extra: Bool) -> [String: Any] {
         var http = ["demo-comics.example.com"]
         if extra { http.append("cdn.demo-comics.example.net") }
-        return ["schema": 1, "id": demoID, "name": "示例漫画（演示）", "version": version, "author": ["name": "i短剧示例"],
+        return ["schema": 1, "id": demoID, "name": "示例漫画（演示）", "version": version, "author": ["name": "黑果夜剧示例"],
                 "description": "演示用的全年龄漫画插件：只访问示例域名，用来展示安装 / 权限 / 更新流程。",
                 "type": "comic", "adult": false, "language": ["zh"], "minAppVersion": "1.5", "entry": "main.js",
                 "permissions": ["http": http, "media": http, "cloudflare": extra, "storage": true, "login": false],
