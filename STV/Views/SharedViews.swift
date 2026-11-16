@@ -86,6 +86,7 @@ enum Route: Hashable {
     case homeSourceOrder
     case diagnostics
     case appearance
+    case icloud
 }
 
 struct ZoomNamespaceKey: EnvironmentKey { static let defaultValue: Namespace.ID? = nil }
@@ -129,6 +130,7 @@ extension View {
             case .homeSourceOrder: HomeSourceOrderView()
             case .diagnostics: SourceDiagnosticsView()
             case .appearance: AppearanceSettingsView()
+            case .icloud: ICloudSyncView()
             }
         }
     }

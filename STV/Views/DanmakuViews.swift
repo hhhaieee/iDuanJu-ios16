@@ -54,6 +54,18 @@ final class DanmakuSettings: ObservableObject {
         d.set(rows, forKey: "stv.dm.rows"); d.set(opacity, forKey: "stv.dm.opacity")
         d.set(speed.rawValue, forKey: "stv.dm.speed"); d.set(size.rawValue, forKey: "stv.dm.size")
     }
+
+    /// 供 iCloud 同步合并后重新加载弹幕偏好。
+    func reloadFromDisk() {
+        enabled = d.object(forKey: "stv.dm.enabled") as? Bool ?? true
+        area = Area(rawValue: d.string(forKey: "stv.dm.area") ?? "") ?? .third
+        merge = d.object(forKey: "stv.dm.merge") as? Bool ?? true
+        likesPriority = d.object(forKey: "stv.dm.likes") as? Bool ?? true
+        rows = d.object(forKey: "stv.dm.rows") as? Int ?? 4
+        opacity = d.object(forKey: "stv.dm.opacity") as? Double ?? 0.85
+        speed = Speed(rawValue: d.string(forKey: "stv.dm.speed") ?? "") ?? .medium
+        size = Size(rawValue: d.string(forKey: "stv.dm.size") ?? "") ?? .medium
+    }
 }
 
 /// Where danmaku lanes go — relative to the SCREEN, not the (letterboxed) video. 1.4b10 framed the layer to

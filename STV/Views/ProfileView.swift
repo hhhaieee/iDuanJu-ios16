@@ -5,6 +5,7 @@ struct ProfileView: View {
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var gate = SourceGate.shared
     @ObservedObject private var proxy = ProxySettings.shared
+    @ObservedObject private var cloud = CloudSync.shared
     @EnvironmentObject private var appearance: AppearanceModel
 
     var body: some View {
@@ -39,13 +40,14 @@ struct ProfileView: View {
                 VStack(spacing: 0) {
                     link("片源管理", "square.stack.3d.down.right", .sources,
                          trailing: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : "红果")
-                    link("数据源诊断", "stethoscope", .diagnostics)
                     link("外观与主题", "paintpalette", .appearance, trailing: appearance.theme.label)
                     link("开源许可", "doc.text", .licenses)
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
                 VStack(alignment: .leading, spacing: 0) {
+                    link("iCloud 云端同步", "icloud", .icloud, trailing: cloud.enabled ? "已开启" : "未开启")
+                    link("数据源诊断", "stethoscope", .diagnostics)
                     HStack {
                         Image(systemName: "network").frame(width: 24)
                         Text("网络代理").foregroundStyle(STVTheme.text)
@@ -78,7 +80,9 @@ struct ProfileView: View {
                 .padding(.horizontal, 16)
                 VStack(spacing: 0) {
                     row("重置红果设备注册", "arrow.counterclockwise") { await HongguoClient.shared.resetDevice(); message = "已重置红果设备" }
-                    row("重置黄果访客会话", "person.badge.key") { await HuangguoClient.shared.resetSession(); message = "已清除黄果会话" }
+                    if gate.huangguo {
+                        row("重置黄果访客会话", "person.badge.key") { await HuangguoClient.shared.resetSession(); message = "已清除黄果会话" }
+                    }
                     row("清空封面缓存", "photo.stack") { await CoverStore.shared.clear(); message = "封面缓存已清空" }
                     row("清空播放缓存", "trash") { try? FileManager.default.removeItem(at: EpisodePlaybackLoader.cacheDir); await HongguoClient.shared.clearResolveCache(); message = "播放缓存已清空" }
                 }

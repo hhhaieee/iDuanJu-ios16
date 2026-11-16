@@ -69,4 +69,11 @@ final class LibraryStore: ObservableObject {
 
     private func load<T: Decodable>(_ k: String) -> T? { d.data(forKey: k).flatMap { try? JSONDecoder().decode(T.self, from: $0) } }
     private func save<T: Encodable>(_ v: T, _ k: String) { if let data = try? JSONEncoder().encode(v) { d.set(data, forKey: k) } }
+
+    /// 供 iCloud 同步合并后重新加载内存状态（观看记录 / 收藏 / 搜索历史）。
+    func reloadFromDisk() {
+        progress = load("stv.progress") ?? [:]
+        allFavorites = load("stv.favorites") ?? []
+        searchHistory = load("stv.searchHistory") ?? []
+    }
 }

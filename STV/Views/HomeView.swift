@@ -96,6 +96,7 @@ final class HomeSourceOrder: ObservableObject {
     private let d = UserDefaults.standard
     private init() { keys = d.stringArray(forKey: "stv.home.order") ?? [] }
     func save(_ ks: [String]) { keys = ks; d.set(ks, forKey: "stv.home.order") }
+    func reload() { keys = d.stringArray(forKey: "stv.home.order") ?? [] }
 }
 
 /// Caches the first page of each rank board for the home cards.

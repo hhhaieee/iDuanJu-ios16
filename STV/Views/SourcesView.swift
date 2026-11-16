@@ -55,8 +55,10 @@ struct SourcesView: View {
                             }.padding(14)
                         }
                     }
-                    Text("开启后，该站会出现在「发现」顶部标签和「搜索」结果来源里；关闭后收藏、观看记录仍保留在本机，只是不再显示。所有请求由本机直连站点，部分站点需要先在内置浏览器完成一次 Cloudflare 验证。")
-                        .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
+                    if adultRevealed {
+                        Text("开启后，该站会出现在「发现」顶部标签和「搜索」结果来源里；关闭后收藏、观看记录仍保留在本机，只是不再显示。所有请求由本机直连站点，部分站点需要先在内置浏览器完成一次 Cloudflare 验证。")
+                            .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
+                    }
                     group("播放设置") {
                         VStack(alignment: .leading, spacing: 10) {
                             label("长视频预缓冲", "arrow.down.circle", sub: "播放时从当前位置向后预先下载到本机，弱网下拖动/连续观看更流畅；短剧仍按预加载后续 3–4 集")
