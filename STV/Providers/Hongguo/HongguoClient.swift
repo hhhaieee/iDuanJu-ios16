@@ -7,8 +7,8 @@ actor HongguoClient {
     static let shared = HongguoClient()
 
     private let session: URLSession
-    /// 取流会话（播放解析）。跟随「网络代理」设置：红果取流接口按出口 IP 地区风控，
-    /// 大陆直连会返回 200 + 空包（软拒绝），走香港/海外代理出口即可通过。
+    /// 取流会话（播放解析）。保持直连、不走代理：软拒绝根因在签名/设备信任，与出口 IP 无关；
+    /// 且系统代理/SOCKS 反而更容易触发 200 空包。
     let playerSession: URLSession
     private var device: HGDevice?
     private var registering: Task<HGDevice, Error>?
@@ -32,9 +32,11 @@ actor HongguoClient {
         pcfg.timeoutIntervalForRequest = 20
         pcfg.httpCookieStorage = nil
         pcfg.httpShouldSetCookies = false
-        // 取流同样跟随「网络代理」：不开代理时保持直连（与旧行为一致），
-        // 开代理后取流也走代理出口，从而绕过红果对大陆直连 IP 的软拒绝。
-        ProxySettings.shared.apply(to: pcfg)
+        // Empty dict alone does not defeat Clash TUN/fake-ip; still disable URLSession-level HTTP/HTTPS/SOCKS.
+        pcfg.connectionProxyDictionary = [
+            "HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0,
+            "HTTPProxy": "", "HTTPSProxy": "", "SOCKSProxy": ""
+        ]
         playerSession = URLSession(configuration: pcfg)
     }
 
