@@ -165,6 +165,10 @@ struct HomeView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            // iOS 16 的 .page TabView 底部有一条系统默认背景（浅色模式下是白色），
+            // 会盖住 STVTheme.bg 透出的底部留白，形成「只在首页出现的底部挡板」。这里
+            // 显式铺上页面底色，把那条系统背景覆盖掉——底部留白区域随之与搜索页一致。
+            .background(STVTheme.bg)
         }
         .background(alignment: .top) { atmosphere }
         .background(STVTheme.bg.ignoresSafeArea())

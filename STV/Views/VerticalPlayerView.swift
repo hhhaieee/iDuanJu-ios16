@@ -341,22 +341,31 @@ struct PlayerScreen: View {
                     .onPreferenceChange(ScrollOffsetKey.self) { minY in
                         let rawY = -minY
                         let pageHeight = geo.size.height
+                        guard pageHeight > 0 else { return }
                         // 边界锁：上滑只进下一集、下滑只进上一集；第一集不能再下滑、最后一集不能再
                         // 上滑（没有上/下集就滑不动，不露出封面占位或黑边）。越界即拉回边界页。
-                        let maxY = CGFloat(max(0, co.episodes.count - 1)) * max(pageHeight, 1)
+                        let maxY = CGFloat(max(0, co.episodes.count - 1)) * pageHeight
                         let y = min(max(rawY, 0), maxY)
                         if y != rawY {
                             feedScrollY = y
                             proxy.scrollTo(y == 0 ? 0 : co.episodes.count - 1, anchor: .top)
                             return
                         }
-                        feedScrollY = y
+                        // 程序性 scrollTo 未落地时，实际滚动位置 y 与当前集相差会超过 1 页（横竖屏切换、
+                        // 选集面板跨页跳转时，ScrollView 从旧位置起步还没滚到目标页）。此时视频层锁死在
+                        // 当前集，不跟随 y——否则会被 y 拉走，出现「画面跳到第一集 / 整屏错位」。用户上下滑
+                        // 换集一次只跨 1 页，跟手效果不受影响。
+                        let curPage = CGFloat(co.current ?? 0) * pageHeight
+                        if abs(y - curPage) > pageHeight * 1.5 {
+                            feedScrollY = curPage
+                        } else {
+                            feedScrollY = y
+                        }
                         // 初始定位：等 ScrollView 滚到 co.current 对应页后（y 与目标页偏移 < 2pt）
                         // 才启用 settle。iOS 16 的远距离 scrollTo 对 LazyVStack 可能延迟，若在 y 仍停在
                         // 第 1 集时就 settle，会把选集误拉回第一集。
                         if feedAnchoring {
-                            let targetY = CGFloat(co.current ?? 0) * max(pageHeight, 1)
-                            if abs(y - targetY) < 2 {
+                            if abs(y - curPage) < 2 {
                                 feedAnchoring = false
                                 feedInitialized = true
                             }
@@ -368,9 +377,17 @@ struct PlayerScreen: View {
                             let pageHeight = geo.size.height
                             guard pageHeight > 0 else { return }
                             let idx = min(max(Int(round(y / pageHeight)), 0), max(0, co.episodes.count - 1))
-                            if idx != co.current {
-                                co.select(idx)
-                                withAnimation { proxy.scrollTo(idx, anchor: .top) }
+                            let cur = co.current ?? 0
+                            if idx != cur {
+                                // 只有相邻页的用户滑动才换集；跨页跳变来自程序性 scrollTo 未落地
+                                // （横竖屏切换 / 初始化 / 选集面板），一律吸附回当前集，绝不 select——
+                                // 否则会把选集误拉回第一集（co.select(0)），连播也随之失效。
+                                if abs(idx - cur) == 1 {
+                                    co.select(idx)
+                                    withAnimation { proxy.scrollTo(idx, anchor: .top) }
+                                } else {
+                                    withAnimation { proxy.scrollTo(cur, anchor: .top) }
+                                }
                             } else {
                                 // 停在半页（没过半回弹）也吸附回整页，避免视频层与页面错位。
                                 withAnimation { proxy.scrollTo(idx, anchor: .top) }
