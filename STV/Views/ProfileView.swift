@@ -88,7 +88,7 @@ struct ProfileView: View {
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
-                Text(message ?? "所有数据由本机直连上游，观看记录和收藏只保存在本机。\n\(Self.versionText)")
+                Text(message ?? (cloud.enabled ? "所有数据由本机直连上游；已开启 iCloud 同步，观看记录和收藏会同步到云端。\n\(Self.versionText)" : "所有数据由本机直连上游，观看记录和收藏只保存在本机。\n\(Self.versionText)"))
                     .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
             }.padding(.vertical, 12)
         }

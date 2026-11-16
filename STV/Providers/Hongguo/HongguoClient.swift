@@ -47,6 +47,9 @@ actor HongguoClient {
     private static let urlBatch = "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/multi_video_model/player/v1?"
     /// AB-off form (dr_scene stays in body). Default preferred since 2026-10-21 gateway fix 2d70cfd.
     private static let urlBatchABOff = "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/multi_video_model/v1?"
+    /// sinfonlineb 镜像（上游诊断显示 b 节点可用、a 节点对部分设备返回 200 空包软拒绝）。
+    private static let urlBatchB = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/player/v1?"
+    private static let urlBatchABOffB = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1?"
     private static let urlDetail = "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/multi_video_detail/preload/v1?"
     private static let urlBookDir = "https://api5-normal-sinfonlinea.fqnovel.com/reading/bookapi/directory/all_items/v?"
     private static let urlCategory = "https://api5-normal-sinfonlineb.fqnovel.com/reading/distribution/category/landpage/v:version/?"
@@ -61,11 +64,11 @@ actor HongguoClient {
     private static var preferredBatchABOff = true
 
     private static func playerBatchBases() -> [String] {
-        preferredBatchABOff ? [urlBatchABOff, urlBatch] : [urlBatch, urlBatchABOff]
+        preferredBatchABOff ? [urlBatchABOff, urlBatchABOffB, urlBatch, urlBatchB] : [urlBatch, urlBatchB, urlBatchABOff, urlBatchABOffB]
     }
 
     private static func rememberPlayerBatchBase(_ base: String) {
-        preferredBatchABOff = (base == urlBatchABOff)
+        preferredBatchABOff = (base == urlBatchABOff || base == urlBatchABOffB)
     }
 
     static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
@@ -236,7 +239,7 @@ actor HongguoClient {
 
     private static func playerSignHeaders(base: String, query: String, body: Data, now: Date) -> [String: String] {
         let bytes = Array(body)
-        if base == urlBatchABOff {
+        if base == urlBatchABOff || base == urlBatchABOffB {
             return HGSign.genericSessionHeaders(rawQuery: query, body: bytes, now: now)
         }
         return HGSign.videoModelHeaders(rawQuery: query, body: bytes, now: now)
@@ -263,7 +266,7 @@ actor HongguoClient {
                 let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 if data.isEmpty {
                     last = PlayerEmptyBody()
-                    let form = (base == Self.urlBatchABOff) ? "ab_off" : "ab_on"
+                    let form = (base == Self.urlBatchABOff || base == Self.urlBatchABOffB) ? "ab_off" : "ab_on"
                     NSLog("[HG] player batch HTTP %d empty form=%@ attempt=%d", status, form, i + 1)
                     continue
                 }
@@ -637,7 +640,7 @@ actor HongguoClient {
 
     // MARK: pure player (gateway player_pure.go, 7.3.9.32 profile)
 
-    private static let purePlayerHost = "api5-normal-sinfonlinea.fqnovel.com"
+    private static let purePlayerHost = "api5-normal-sinfonlineb.fqnovel.com"
     private static let purePlayerPath = "/novel/player/video_model/v1/"
     private static let purePlayerVersionName = "7.3.9.32"
     private static let purePlayerVersionCode = "73932"
@@ -754,7 +757,7 @@ actor HongguoClient {
                         return nil
                     }
                     let r = try await materialize(raw, vid: vid)
-                    let form = (base == Self.urlBatchABOff) ? "ab_off" : "ab_on"
+                    let form = (base == Self.urlBatchABOff || base == Self.urlBatchABOffB) ? "ab_off" : "ab_on"
                     NSLog("[HG] player batch code=%@ form=%@ level=%d streams=%d device=%@", J.str(j["code"]), form, level, r.streams.count, HGPlayerDevice.current().deviceId)
                     return r
                 } catch is PlayerEmptyBody {

@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import UIKit
+import Combine
 
 /// Which playback core plays an episode. AetherEngine is the default; AVPlayer is the fallback for
 /// sources Aether cannot take (out-of-band AES keys via the resource loader, FairPlay) and for any
@@ -32,6 +33,15 @@ enum SleepTimerSettings {
         get { UserDefaults.standard.object(forKey: key) as? Int ?? 30 }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
+}
+
+/// 播放器「定时开关」的会话级开关状态：开启后跨剧 / 跨资源保持，直到手动关闭或重启 App。
+/// 只保存在内存（重启即重置），符合「每次重启 App 默认关闭」的预期。
+@MainActor
+final class SleepTimerStore: ObservableObject {
+    static let shared = SleepTimerStore()
+    @Published var isOn = false
+    private init() {}
 }
 
 /// One audio / subtitle track, engine-neutral (Aether `TrackInfo` or an `AVMediaSelectionOption`).
