@@ -199,4 +199,20 @@ final class HGPlayerSigningTests: XCTestCase {
         XCTAssertNil(h["x-medusa"])
         XCTAssertEqual(h["x-ss-stub"], "3B5CDED53D6FBAB1380ADF920399605E")
     }
+
+    /// V5 签名器自举 + 出签形态（QuickJS 沙箱跑内嵌签名档案；值是随机的，只验证结构）。
+    func testV5SignerBootsAndSigns() throws {
+        let bodyB64 = Data("{\"video_id\":\"7695629314057849880\"}".utf8).base64EncodedString()
+        let h = try HGV5Sign.sign(url: "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/?aid=8662&ts=1794855600&_rticket=1794855600123",
+                                  bodyBase64: bodyB64,
+                                  epoch: 1794855600,
+                                  device: .init(iid: "2715173988642953", deviceId: "2715173988638857",
+                                                cdid: "3f2b9c1e-7d4a-4f3e-9a11-8b2c5d6e7f01"))
+        XCTAssertEqual(h["x-khronos"], "1794855600")
+        XCTAssertEqual(h["x-argus"]?.count, 8)      // 4 字节桩 → base64 8 字符
+        XCTAssertEqual(h["x-ladon"]?.count, 8)
+        XCTAssertNotNil(h["x-gorgon"])
+        XCTAssertNotNil(h["x-helios"])
+        XCTAssertGreaterThan(h["x-medusa"]?.count ?? 0, 200)   // 真签名（~268 字符）
+    }
 }

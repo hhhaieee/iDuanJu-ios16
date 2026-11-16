@@ -125,16 +125,9 @@ actor HongguoClient {
     private var lastAutoReregister: Date?
     private static let autoReregisterMinInterval: TimeInterval = 30
 
-    private static var hasPurePlayerOverride: Bool {
-        guard let s = UserDefaults.standard.string(forKey: "stv.hg.purePlayerDevice") else { return false }
-        let p = s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        return p.count == 2 && !p[0].isEmpty && !p[1].isEmpty
-    }
-
     /// Proactive renewal before video_model: a registered device only plays for ~10 min after device_register, so a
     /// device restored on a cold start (or kept across a long session) is already dead. Same as tapping 「重置」.
     private func refreshDeviceIfStaleForPlayback() async {
-        if Self.hasPurePlayerOverride { return }
         guard let d = device ?? HGDevice.load(), d.isStaleForPlayback else { return }
         if let t = lastAutoReregister, Date().timeIntervalSince(t) < Self.autoReregisterMinInterval { return }
         lastAutoReregister = Date()
@@ -150,7 +143,6 @@ actor HongguoClient {
     /// Drops the device only if it is still the one that failed (a concurrent prefetch may already have replaced it).
     /// Returns true when a different, usable device is now in place.
     private func reregisterAfterSoftReject(failedDeviceId did: String) async -> Bool {
-        if Self.hasPurePlayerOverride { return false }          // user-pinned device: never replace it
         if let cur = device ?? HGDevice.load(), cur.deviceId != did { return true }
         if let t = lastAutoReregister, Date().timeIntervalSince(t) < Self.autoReregisterMinInterval { return false }
         lastAutoReregister = Date()
@@ -576,15 +568,14 @@ actor HongguoClient {
     func resolveFresh(vid: String) async throws -> HGResolvedVideo {
         var sawSoftReject = false
         await refreshDeviceIfStaleForPlayback()
-        _ = try? await ensureDevice()   // make sure a device_register device exists before video_model
-        // Signed official playback (hongguo-web verified flow: GET video_tab → POST multi_video_model) first;
+        _ = try? await ensureDevice()   // legacy chain below wants a device_register device too
+        // V5 signed playback (THL built-in profile: x-medusa carries the real signature) first;
         // legacy batch remains a fallback.
-        let pureDid = Self.purePlayerDeviceID
-        if let r = try await resolveOfficialLevels(vid, sawSoftReject: &sawSoftReject) { return r }
-        // Soft reject on the registered device = that device has gone stale upstream. Re-register once and retry,
+        if let r = try await resolveV5Levels(vid, sawSoftReject: &sawSoftReject) { return r }
+        // Soft reject on the V5 device = it has gone stale upstream. Re-register once and retry,
         // instead of falling through to the legacy dialects (they use minted devices and are soft-rejected anyway).
-        if sawSoftReject, await reregisterAfterSoftReject(failedDeviceId: pureDid) {
-            if let r = try await resolveOfficialLevels(vid, sawSoftReject: &sawSoftReject) { return r }
+        if sawSoftReject, await reregisterV5AfterSoftReject() {
+            if let r = try await resolveV5Levels(vid, sawSoftReject: &sawSoftReject) { return r }
         }
         for level in [3, 4] {
             try Task.checkCancellation()
@@ -620,193 +611,257 @@ actor HongguoClient {
         throw ProviderError.upstream("取链失败")
     }
 
-    /// Official signed playback (hongguo-web verified flow). An empty body means the device is rejected upstream.
-    private func resolveOfficialLevels(_ vid: String, sawSoftReject: inout Bool) async throws -> HGResolvedVideo? {
+    /// THL V5 signed playback. An empty body means the device/profile is rejected upstream (soft reject).
+    private func resolveV5Levels(_ vid: String, sawSoftReject: inout Bool) async throws -> HGResolvedVideo? {
         do {
-            return try await resolveOfficial(vid)
+            return try await resolveV5(vid)
         } catch is PlayerEmptyBody {
             sawSoftReject = true
-            NSLog("[HG] resolveOfficial empty")
+            NSLog("[HG] resolveV5 empty")
             return nil
         } catch {
-            NSLog("[HG] resolveOfficial error: %@", String(describing: error))
+            NSLog("[HG] resolveV5 error: %@", String(describing: error))
             return nil
         }
     }
 
-    // MARK: official signed playback (aligned with hongguo-web signPlaybackRequest, 2026-11-16 verified)
+    // MARK: V5 signed playback (THL hongguo.js built-in profile, 2026-11-17 sandbox-verified)
     //
-    // 关键对齐点（参考实现逐字段核对）：
-    //  1) x-argus protobuf field 16 (installId) 必须为空串 —— 带 iid 会被判伪造，上游回 200 + 空正文；
-    //  2) 首选签名 GET /reading/bookapi/video_tab/multi_video_model/v1/（73932 档，video_id 走 query，无 body）；
-    //  3) 仅当 GET 空正文时补发一次签名 POST /novel/player/multi_video_model/v1/（74332 档，gzip body，
-    //     x-ss-stub = wire 字节（gzip）的 md5 大写，Content-Encoding: gzip）；
-    //  4) query 编码与参考实现一致（encodeURIComponent + 额外转义 !'()），resolution 里的 * 必须转义成 %2A。
+    // 与 hongguo-web V4 协议的关键差异（对照实测：同 IP 同时刻 V4 → 200 空正文，V5 → code 0 出流）：
+    //  1) 真正的签名走 V5「内置签名档案」（x-medusa 头携带，THL bundle 内嵌 id+material）；
+    //  2) 主路径 POST /novel/player/multi_video_model/v1/，body 为
+    //     {"biz_param":{…,"video_platform":1024},"mixed_video_id_map":{"1004":["<vid>"]}}（键序必须固定，
+    //     x-ss-stub / 签名覆盖的都是 wire 字节）；单集路由退化为 {"video_id","content_type":1,"biz_param"}；
+    //  3) query 编码为 encodeURIComponent 语义（保留 - _ . ! ~ * ' ( )，含 1280*2772 的裸 *）；
+    //  4) _rticket 选值要过 to(url, body, ts) !== 1 的筛（约 1/3 的值被跳过）；
+    //  5) 设备身份来自 log.snssdk.com/service/2/device_register（71332 档），全局缓存复用。
 
-    private static let officialHost = "api5-normal-sinfonlineb.fqnovel.com"
-    private static let officialTabPath = "/reading/bookapi/video_tab/multi_video_model/v1/"
-    private static let officialModelPath = "/novel/player/multi_video_model/v1/"
+    private struct V5Device: Codable {
+        var iid: String
+        var deviceId: String
+        var cdid: String
+        var openudid: String
+        var registeredAt: Double
 
-    private static func officialUA(_ versionCode: String) -> String {
-        "com.phoenix.read/\(versionCode) (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
+        static let defaultsKey = "stv.hg.v5Device"
+        static func load() -> V5Device? {
+            guard let d = UserDefaults.standard.data(forKey: defaultsKey) else { return nil }
+            return try? JSONDecoder().decode(V5Device.self, from: d)
+        }
+        func save() {
+            if let d = try? JSONEncoder().encode(self) {
+                UserDefaults.standard.set(d, forKey: Self.defaultsKey)
+            }
+        }
+        var valid: Bool {
+            func digits(_ s: String) -> Bool { !s.isEmpty && s.allSatisfy(\.isNumber) && s.count >= 10 && s.count <= 24 }
+            return digits(iid) && digits(deviceId)
+        }
     }
 
-    // 与参考实现 encodeValue 完全一致：unreserved = alnum + -_.~*（!'() 额外转义，* 转义为 %2A）。
-    private static func officialEscape(_ s: String) -> String {
+    private var v5Device: V5Device?
+    private var v5LastRegisterAttempt: Date?
+    private var v5PreferredRoute: (url: String, until: Date)?
+
+    private static let v5UA = "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
+    private static let v5RegisterURL = "https://log.snssdk.com/service/2/device_register/?aid=8662&app_name=novelread"
+    private static let v5Routes = [
+        "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/",
+        "https://reading.snssdk.com/novel/player/multi_video_model/v1/",
+        "https://reading.snssdk.com/novel/player/video_model/v1/",
+        "https://api5-normal.fqnovel.com/novel/player/multi_video_model/v1/",
+    ]
+    /// 与 THL yn 常量一致的 query 档位（71332）。键序即 wire 序，不要重排。
+    private static let v5BasePairs: [(String, String)] = [
+        ("ac", "wifi"), ("channel", "update_64"), ("aid", "8662"), ("app_name", "novelread"),
+        ("version_code", "71332"), ("version_name", "7.1.3.32"), ("device_platform", "android"), ("os", "android"),
+        ("ssmix", "a"), ("device_type", "25053RT47C"), ("device_brand", "Redmi"), ("language", "zh"),
+        ("os_api", "36"), ("os_version", "16"), ("manifest_version_code", "71332"), ("resolution", "1280*2772"),
+        ("dpi", "520"), ("update_version_code", "71332"), ("host_abi", "arm64-v8a"),
+        ("dragon_device_type", "phone"), ("pv_player", "71332"), ("compliance_status", "0"),
+        ("need_personal_recommend", "1"), ("player_so_load", "1"), ("is_android_pad_screen", "0"),
+    ]
+    private static let v5Biz = #"{"detail_page_version":0,"device_level":3,"disable_digg_stat":false,"need_all_video_definition":true,"need_mp4_align":false,"use_os_player":false,"use_server_dns":false,"video_platform":1024}"#
+
+    /// encodeURIComponent 语义：保留 alnum 与 - _ . ! ~ * ' ( )，其余 %XX 大写。
+    private static func v5Escape(_ s: String) -> String {
         var o = ""
         for c in s.utf8 {
-            let unreserved = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
-                || c == 45 || c == 95 || c == 46 || c == 126 || c == 42
-            if unreserved { o.append(Character(UnicodeScalar(c))) }
-            else { o += String(format: "%%%02X", c) }
+            let keep = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
+                || [45, 95, 46, 33, 126, 42, 39, 40, 41].contains(c)
+            if keep { o.append(Character(UnicodeScalar(c))) } else { o += String(format: "%%%02X", c) }
         }
         return o
     }
 
-    private static func officialQuery(_ pairs: [(String, String)]) -> String {
-        pairs.map { officialEscape($0.0) + "=" + officialEscape($0.1) }.joined(separator: "&")
+    private static func v5Query(_ pairs: [(String, String)]) -> String {
+        pairs.map { v5Escape($0.0) + "=" + v5Escape($1) }.joined(separator: "&")
     }
 
-    /// BASE_DEVICE（红果 7.x 匿名档，参考实现）：73932 用于 video_tab，74332 用于旧 POST 链路，不能混用。
-    private static func officialBasePairs(versionCode: String, versionName: String) -> [(String, String)] {
-        [("ac", "wifi"), ("channel", "update_64"), ("aid", "8662"), ("app_name", "novelread"),
-         ("version_code", versionCode), ("version_name", versionName), ("device_platform", "android"), ("os", "android"),
-         ("ssmix", "a"), ("device_type", "25053RT47C"), ("device_brand", "Redmi"), ("language", "zh"), ("os_api", "36"),
-         ("os_version", "16"), ("manifest_version_code", versionCode), ("resolution", "1280*2772"), ("dpi", "520"),
-         ("update_version_code", versionCode), ("host_abi", "arm64-v8a"), ("dragon_device_type", "phone"),
-         ("pv_player", versionCode), ("compliance_status", "0"), ("need_personal_recommend", "1"), ("player_so_load", "1"),
-         ("is_android_pad_screen", "0")]
-    }
-
-    // Upstream may reject freshly minted devices with 200 + 0 bytes. No device is bundled in the open-source build:
-    // by default this install's own registered device is used; you may set your own known-good pair via
-    // UserDefaults key `stv.hg.purePlayerDevice` = "<device_id>,<iid>".
-    private static var purePlayerDevice: (did: String, iid: String) {
-        if let s = UserDefaults.standard.string(forKey: "stv.hg.purePlayerDevice") {
-            let p = s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            if p.count == 2, !p[0].isEmpty, !p[1].isEmpty { return (p[0], p[1]) }
+    /// THL to()：筛 _rticket。第一个 Ce 的 query 参数在参考实现里是 querystring.parse 结果（无 .length，
+    /// 循环为空 → 恒等），这里直接等价省略。
+    private static func v5TicketValue(_ url: String, body: [UInt8], epoch: UInt32) -> Int {
+        _ = url   // 参考实现只取 query，其效果等价于恒等，见下
+        func ce(_ n: UInt32, _ bytes: [UInt8]) -> UInt32 {
+            var t = n
+            for (i, b) in bytes.enumerated() {
+                if i & 1 == 0 { t = (t &>> 4) ^ t ^ (t &<< 6) ^ UInt32(b) }
+                else { t = ~((t &>> 7) ^ t ^ (UInt32(b) | (t &<< 12))) }
+            }
+            return t
         }
-        // 取址只接受走过 device_register 的设备（本地 mint 的 did/iid 会 200 + 0 bytes）。优先用注册设备。
-        if let r = HGDevice.load() { return (r.deviceId, r.iid) }
-        let d = HGPlayerDevice.current()
-        return (d.deviceId, d.iid)
-    }
-    private static var purePlayerDeviceID: String { purePlayerDevice.did }
-
-    /// 取流身份：注册设备 + cdid（注册回报带 cdid；没有就用 did 派生一个稳定值）。
-    private static func officialIdentity() -> (did: String, iid: String, cdid: String) {
-        let d = purePlayerDevice
-        let registeredCdid = HGDevice.load()?.cdid ?? ""
-        let cdid = registeredCdid.isEmpty ? stableUUID("hongguo-player-cdid:" + d.did) : registeredCdid
-        return (d.did, d.iid, cdid)
+        let bodyHash = body.isEmpty ? [UInt8](repeating: 0, count: 16) : Bytes.md5(body)
+        var ts = epoch
+        let z = withUnsafeBytes(of: &ts) { Array($0) }         // writeUInt32LE
+        let mixed = ce(ce(539167016, bodyHash), z)
+        let a = Int(mixed & 0xF)
+        return a - ((a &* 171) >> 9) &* 3
     }
 
-    private static func stableUUID(_ seed: String) -> String {
-        var b = Array(SHA256.hash(data: Data(seed.utf8)).prefix(16))
-        b[6] = (b[6] & 0x0f) | 0x40
-        b[8] = (b[8] & 0x3f) | 0x80
-        let h = HGPlayerSign.hexStr(b)
-        let c = Array(h)
-        return [c[0..<8], c[8..<12], c[12..<16], c[16..<20], c[20..<32]].map { String($0) }.joined(separator: "-")
-    }
-
-    /// 共享的签名头装配（参考实现 signPlaybackRequest 的 header 组）。
-    private static func applyOfficialHeaders(_ req: inout URLRequest, headers: [String: String], ua: String, passportSDK: String, bodyHeaders: Bool) {
-        req.setValue(ua, forHTTPHeaderField: "User-Agent")
-        req.setValue("application/json; charset=utf-8,application/x-protobuf", forHTTPHeaderField: "Accept")
-        req.setValue("2", forHTTPHeaderField: "sdk-version")
-        req.setValue("0", forHTTPHeaderField: "x-xs-from-web")
-        req.setValue(passportSDK, forHTTPHeaderField: "passport-sdk-version")
-        req.setValue("8662", forHTTPHeaderField: "x-ss-dp")
-        req.setValue("", forHTTPHeaderField: "x-tt-dt")
-        req.setValue("cn", forHTTPHeaderField: "x-tt-store-region")
-        req.setValue("did", forHTTPHeaderField: "x-tt-store-region-src")
-        if bodyHeaders {
-            req.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            req.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
-        } else {
-            req.setValue("t=0;n=0", forHTTPHeaderField: "x-tt-request-tag")
+    /// device_register（THL Ot() 等价，71332 档）。缓存 + 持久化，身份全局复用。
+    private func v5RegisterDevice(force: Bool = false) async throws -> V5Device {
+        if !force, let d = v5Device ?? V5Device.load(), d.valid {
+            v5Device = d
+            return d
         }
-        for (k, v) in headers where !v.isEmpty { req.setValue(v, forHTTPHeaderField: k) }
-    }
-
-    private func resolveOfficial(_ vid: String) async throws -> HGResolvedVideo {
-        let ident = Self.officialIdentity()
-        // 1) 签名 GET video_tab（73932 档）。
-        do {
-            let raw = try await officialTabModel(vid, identity: ident)
-            let r = try await materialize(raw, vid: vid)
-            NSLog("[HG] official video_tab ok streams=%d device=%@", r.streams.count, ident.did)
-            return r
-        } catch is PlayerEmptyBody {
-            // 2) 仅空正文时补发旧链路：签名 POST multi_video_model（74332 档，gzip body）。
-            NSLog("[HG] official video_tab empty, fall back to signed POST model")
-            let raw = try await officialModel(vid, identity: ident)
-            let r = try await materialize(raw, vid: vid)
-            NSLog("[HG] official model ok streams=%d device=%@", r.streams.count, ident.did)
-            return r
+        if !force, let t = v5LastRegisterAttempt, Date().timeIntervalSince(t) < 30 {
+            throw ProviderError.upstream("V5 设备注册过于频繁")
         }
-    }
-
-    private func officialTabModel(_ vid: String, identity: (did: String, iid: String, cdid: String)) async throws -> [String: Any] {
-        let nowMs = Self.nowMs()
-        let ts = UInt32(nowMs / 1000)
-        var pairs = Self.officialBasePairs(versionCode: "73932", versionName: "7.3.9.32")
-        pairs += [("device_id", identity.did), ("iid", identity.iid), ("cdid", identity.cdid)]
-        pairs += [("video_id", vid), ("video_id_type", "0"), ("device_level", "1"), ("need_all_video_definition", "1"),
-                  ("need_mp4_align", "0"), ("use_os_player", "0"), ("video_platform", "1024"), ("source", "0"), ("from_video_id", "")]
-        pairs += [("ts", String(ts)), ("_rticket", String(nowMs))]
-        let q = Self.officialQuery(pairs)
-        let headers = try HGPlayerSign.playbackHeaders(query: q, body: [], timestamp: ts)
-        var req = URLRequest(url: URL(string: "https://" + Self.officialHost + Self.officialTabPath + "?" + q)!)
-        req.httpMethod = "GET"
-        Self.applyOfficialHeaders(&req, headers: headers, ua: Self.officialUA("73932"), passportSDK: "50561", bodyHeaders: false)
-        let (data, resp) = try await playerSession.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw ProviderError.upstream("video_tab HTTP \(status)") }
-        if data.isEmpty { NSLog("[HG] official video_tab HTTP 200 empty"); throw PlayerEmptyBody() }
-        let j = try J.parse(data)
-        for c in [j["code"], j["Code"], J.dict(j["BaseResp"])["StatusCode"]] where c != nil {
-            if J.str(c) != "0" { throw ProviderError.upstream("video_tab code=\(J.str(c)) \(J.str(j["message"]))") }
-        }
-        // video_tab 结构：data.video_model_data[epId].video_model（缺省退回 data[epId]）。
-        let d = J.dict(j["data"])
-        let rows = J.dict(d["video_model_data"]).isEmpty ? d : J.dict(d["video_model_data"])
-        guard let raw = Self.videoModelJSON(J.dict(rows[vid])["video_model"]) else {
-            throw ProviderError.upstream("video_tab 缺少本集 video_model")
-        }
-        return raw
-    }
-
-    private func officialModel(_ vid: String, identity: (did: String, iid: String, cdid: String)) async throws -> [String: Any] {
-        let nowMs = Self.nowMs()
-        let ts = UInt32(nowMs / 1000)
-        var pairs = Self.officialBasePairs(versionCode: "74332", versionName: "7.4.3.32")
-        pairs += [("device_id", identity.did), ("iid", identity.iid), ("cdid", identity.cdid),
-                  ("ts", String(ts)), ("_rticket", String(nowMs))]
-        let q = Self.officialQuery(pairs)
-        // 参考实现 payload（键序无关：x-ss-stub 与 x-argus 覆盖的都是实际发出的 wire 字节）。
-        let bodyObj: [String: Any] = ["biz_param": ["detail_page_version": 0, "device_level": 3, "disable_digg_stat": false,
-                                                    "need_all_video_definition": true, "need_mp4_align": false, "use_os_player": false,
-                                                    "use_server_dns": false, "video_platform": 1024] as [String: Any],
-                                      "mixed_video_id_map": ["1004": [vid]] as [String: Any]]
-        let gz = Gzip.compress(J.encodeSorted(bodyObj))
-        let headers = try HGPlayerSign.playbackHeaders(query: q, body: Array(gz), timestamp: ts)
-        var req = URLRequest(url: URL(string: "https://" + Self.officialHost + Self.officialModelPath + "?" + q)!)
+        v5LastRegisterAttempt = Date()
+        let cdid = UUID().uuidString.lowercased()
+        let openudid = Bytes.hex(Bytes.random(8))
+        let header: [String: Any] = [
+            "aid": 8662, "app_name": "novelread", "package": "com.phoenix.read", "app_version": "7.1.3.32",
+            "version_code": 71332, "update_version_code": 71332, "manifest_version_code": 71332, "sdk_version": "6.18.0",
+            "device_platform": "android", "os": "Android", "os_version": "16", "os_api": 36,
+            "device_model": "25053RT47C", "device_brand": "Redmi", "device_manufacturer": "Xiaomi",
+            "density_dpi": 520, "display_density": "mdpi", "resolution": "1280x2772",
+            "language": "zh", "timezone": 8, "access": "wifi", "channel": "update_64",
+            "cdid": cdid, "openudid": openudid,
+        ]
+        let body = try JSONSerialization.data(withJSONObject: [
+            "magic_tag": "ss_app_log", "header": header, "_gen_time": Self.nowMs(),
+        ])
+        var req = URLRequest(url: URL(string: Self.v5RegisterURL)!)
         req.httpMethod = "POST"
-        req.httpBody = gz
-        Self.applyOfficialHeaders(&req, headers: headers, ua: Self.officialUA("74332"), passportSDK: "5051452", bodyHeaders: true)
+        req.httpBody = body
+        req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        req.setValue(Self.v5UA, forHTTPHeaderField: "User-Agent")
+        req.timeoutInterval = 12
+        let (data, resp) = try await session.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw ProviderError.upstream("V5 device_register HTTP \(status)") }
+        let j = try J.parse(data)
+        let did = J.str(j["device_id_str"]), iid = J.str(j["install_id_str"])
+        guard !did.isEmpty, !iid.isEmpty else { throw ProviderError.upstream("V5 device_register 未返回身份") }
+        let d = V5Device(iid: iid, deviceId: did, cdid: cdid, openudid: openudid,
+                         registeredAt: Date().timeIntervalSince1970)
+        d.save()
+        v5Device = d
+        return d
+    }
+
+    /// 软拒绝后重注册一次（限频 30s），成功换新身份返回 true。
+    private func reregisterV5AfterSoftReject() async -> Bool {
+        if let t = v5LastRegisterAttempt, Date().timeIntervalSince(t) < 30 { return false }
+        do {
+            _ = try await v5RegisterDevice(force: true)
+            NSLog("[HG] V5 soft reject -> re-registered device")
+            return true
+        } catch {
+            NSLog("[HG] V5 re-register failed: %@", String(describing: error))
+            return false
+        }
+    }
+
+    /// 主路径：多路由降级（成功路由钉 5 分钟优先）。
+    private func resolveV5(_ vid: String) async throws -> HGResolvedVideo {
+        let device = try await v5RegisterDevice()
+        var routes = Self.v5Routes
+        if let p = v5PreferredRoute, p.until > Date(), let i = routes.firstIndex(of: p.url) {
+            routes.swapAt(0, i)
+        }
+        var last: Error = PlayerEmptyBody()
+        for route in routes {
+            try Task.checkCancellation()
+            do {
+                let raw = try await v5Request(route: route, vid: vid, device: device)
+                let r = try await materialize(raw, vid: vid)
+                v5PreferredRoute = (route, Date().addingTimeInterval(300))
+                NSLog("[HG] v5 ok route=%@ streams=%d", route, r.streams.count)
+                return r
+            } catch is PlayerEmptyBody {
+                last = PlayerEmptyBody()
+                NSLog("[HG] v5 empty route=%@", route)
+            } catch {
+                last = error
+                NSLog("[HG] v5 error route=%@: %@", route, String(describing: error))
+            }
+        }
+        throw last
+    }
+
+    private func v5Request(route: String, vid: String, device: V5Device) async throws -> [String: Any] {
+        let single = route.contains("/video_model/v1/") && !route.contains("multi_")
+        let bodyStr: String
+        if single {
+            bodyStr = #"{"video_id":"\#(vid)","content_type":1,"biz_param":\#(Self.v5Biz)}"#
+        } else {
+            bodyStr = #"{"biz_param":\#(Self.v5Biz),"mixed_video_id_map":{"1004":["\#(vid)"]}}"#
+        }
+        let body = Array(bodyStr.utf8)
+        let epoch = UInt32(Self.nowMs() / 1000)
+
+        // rticket 选择：与 THL Ht() 一致，跳过 to()===1 的取值（最多 32 次）。
+        let base = Self.nowMs()
+        var s = base
+        var q = ""
+        for x in 0..<32 {
+            s = base + Int64(x)
+            var pairs = Self.v5BasePairs
+            pairs += [("iid", device.iid), ("device_id", device.deviceId), ("cdid", device.cdid),
+                      ("openudid", device.openudid), ("ts", String(epoch)), ("_rticket", String(s))]
+            let cand = Self.v5Query(pairs)
+            if Self.v5TicketValue(route + "?" + cand, body: body, epoch: epoch) != 1 {
+                q = cand
+                break
+            }
+            if x == 31 { q = cand }
+        }
+
+        let fullURL = route + "?" + q
+        let signed = try HGV5Sign.sign(url: fullURL,
+                                       bodyBase64: Data(body).base64EncodedString(),
+                                       epoch: epoch,
+                                       device: .init(iid: device.iid, deviceId: device.deviceId, cdid: device.cdid))
+        var req = URLRequest(url: URL(string: fullURL)!)
+        req.httpMethod = "POST"
+        req.httpBody = Data(body)
+        req.timeoutInterval = 3.5
+        req.setValue(Self.v5UA, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json; charset=utf-8,application/x-protobuf", forHTTPHeaderField: "Accept")
+        req.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        req.setValue("0", forHTTPHeaderField: "x-xs-from-web")
+        req.setValue(String(s), forHTTPHeaderField: "x-ss-req-ticket")
+        req.setValue("t=0;n=0", forHTTPHeaderField: "x-tt-request-tag")
+        req.setValue("2", forHTTPHeaderField: "sdk-version")
+        req.setValue("50561", forHTTPHeaderField: "passport-sdk-version")
+        req.setValue("3.7.2.cn", forHTTPHeaderField: "x-vc-bdturing-sdk-version")
+        req.setValue(Bytes.hex(Bytes.md5(body)).uppercased(), forHTTPHeaderField: "x-ss-stub")
+        req.setValue("", forHTTPHeaderField: "x-tt-dt")
+        for (k, v) in signed where !v.isEmpty { req.setValue(v, forHTTPHeaderField: k) }
+
         let (data, resp) = try await playerSession.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw ProviderError.upstream("multi_video_model HTTP \(status)") }
-        if data.isEmpty { NSLog("[HG] official model HTTP 200 empty"); throw PlayerEmptyBody() }
+        guard status == 200 else { throw ProviderError.upstream("v5 HTTP \(status)") }
+        if data.isEmpty { throw PlayerEmptyBody() }
         let j = try J.parse(data)
-        for c in [j["code"], j["Code"], J.dict(j["BaseResp"])["StatusCode"]] where c != nil {
-            if J.str(c) != "0" { throw ProviderError.upstream("multi_video_model code=\(J.str(c)) \(J.str(j["message"]))") }
-        }
-        // 旧链路结构：data[epId].video_model。
-        guard let raw = Self.videoModelJSON(J.dict(J.dict(j["data"])[vid])["video_model"]) else {
-            throw ProviderError.upstream("multi_video_model 缺少本集 video_model")
+        let code = J.str(j["Code"]).isEmpty ? J.str(j["code"]) : J.str(j["Code"])
+        if !code.isEmpty && code != "0" { throw ProviderError.upstream("v5 code=\(code) \(J.str(j["message"]))") }
+        // multi: data[epId].video_model；single: data.video_model。video_model 可能是 JSON 字符串。
+        let entry = single ? J.dict(j["data"]) : J.dict(J.dict(j["data"])[vid])
+        guard let raw = Self.videoModelJSON(entry["video_model"]) else {
+            throw ProviderError.upstream("v5 缺少本集 video_model")
         }
         return raw
     }
