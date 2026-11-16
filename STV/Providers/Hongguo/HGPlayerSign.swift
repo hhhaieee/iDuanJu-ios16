@@ -560,7 +560,9 @@ extension HGPlayerSign {
         bean += pBytes(13, Array(sm3(body.isEmpty ? [UInt8](repeating: 0, count: 16) : md5(body)).prefix(6)))
         bean += pBytes(14, Array(sm3(query.isEmpty ? [UInt8](repeating: 0, count: 16) : Array(query.utf8)).prefix(6)))
         bean += pBytes(15, uint(1, 1) + uint(2, 1) + uint(3, 1) + uint(7, 0xC792ECCC))
-        bean += str(16, param("iid")) + str(20, "none") + uint(21, 738)
+        // ★ installId 必须为空串：参考实现（hongguo-web official.mjs）明确记录——
+        // field 16 带 iid 会被 x-argus 判伪造，上游回 HTTP 200 + 空正文（软拒绝）。
+        bean += str(16, "") + str(20, "none") + uint(21, 738)
         bean += pBytes(23, str(1, "NX551J") + uint(2, 8196) + uint(4, 0x80E0D800)) + uint(25, 2)
 
         let signKey = hexBytes("fc78e0a9657a0c748ce51559903ccf03510e51d3cff232d71343e88a321c5304")

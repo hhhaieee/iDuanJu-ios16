@@ -175,13 +175,15 @@ final class PrefetchTests: XCTestCase {
     }
 }
 
-/// Argus 551 / Ladon vectors checked against hongguo-open-player 3f687c5 (argus.js); placeholder IDs only.
+/// Argus 551 / Ladon vectors checked against hongguo-open-player 3f687c5 (argus.js) and
+/// hongguo-web server/sign/argus.cjs (2026-11-16, golden vectors); placeholder IDs only.
+/// x-argus field 16 (installId) 必须为空串：带 iid 会被上游判伪造回 200 空正文（hongguo-web official.mjs 记录）。
 final class HGPlayerSigningTests: XCTestCase {
     func testArgus551AndLadonVector1() throws {
         let body = Array("".utf8)
         let h = try HGPlayerSign.playbackHeaders(query: "aid=1967&device_id=dev_aaaaaaaa&iid=111", body: body,
                                                 timestamp: 1700000000, argusRandom: 659662259, ladonRandom: 67305985)
-        XCTAssertEqual(h["x-argus"], "8oF304qEDbfv2tmuZJhSIR1pFbZa9D3QxvEEiVNrm54Av877F40mKNw0TvKKIWEIod2TkiLHixpM/c7R/aH6SN4vNA1rmBvt6FoGwDuVmfhMF9iiybRqoTUi2RbP8uE5ALD4Ab7uj/YzTRotQ6Pcg5DHng6zlrLi8umMY06+ej6UDAUZ5SJhbxRwtrH6xnwiVN2oHb48o0UuVo+5NzLAfo7m0RTVrlv1tqexZboMHKNDJ39b8HlSahjZyJ5/ETs3dVZeoQ3MPF7vQE6qDjGksCd8")
+        XCTAssertEqual(h["x-argus"], "8oHyrVYEy1xDCDlx64ko40qC6JC9VYY/ZkjJzEl50iSFDw8Yfph1hupLxfKrA9GswSEz0Yi4goA7OQ4u+H8ECdOaQDL4GduQ3LULSq9Q4iSEGbS3L6G24GXChtnmPr6n46M2PLlKpXvF7uE0lhH4yD+X69FpdM41gQwx5Y5U3NdwXFaxlqYFszyp7dlUE6BEBWqwDsiAH8Jk9TGKr/jfHt4fVmMc9zRyNRdGeV0x6aP//x7aV+8Po8a/9KK3UNG5KEpmIgzRT6NUttkBP9gRNUh3")
         XCTAssertEqual(h["x-ladon"], "AQIDBKM7Y7bWnOIUXmTybD6/MpGbuge4sBwUJsyHVivhtMsH")
         XCTAssertNil(h["x-gorgon"])
         XCTAssertNil(h["x-medusa"])
@@ -191,7 +193,7 @@ final class HGPlayerSigningTests: XCTestCase {
         let body = Array("{\"video_id\":\"7683440834066271256\"}".utf8)
         let h = try HGPlayerSign.playbackHeaders(query: "aid=8662&device_id=test_device_0001&iid=test_iid_0001&version_name=7.3.9.32", body: body,
                                                 timestamp: 1794360000, argusRandom: 4294967295, ladonRandom: 67305985)
-        XCTAssertEqual(h["x-argus"], "8oGtly/q30zomF9jsMsfO3JH1WF7TLiPqtHvN1FuiHsrhW6sN8z+qJZZcPfczvamyDR/2qTQGr/N7GbvAj6ucmVkkmjscfFAAp2gUTcO2/wuJyg477IghAlTRVtzoWlteCii1qzMo0/1RokgXn7YLtNR2hpv5SQGpAMAy4Bb+yHqSJ8tEo+UhB08tF95IzZJPwmSbmzlawaLXKcMO+PyUmBFKRdh2GyZKD8stvwz9vcQ9wpd0Fkj+AL+mETq3iqxishDUAnU6vg/OCwEPYt/FcaopRmsXY6WoBjTwwbKu4jAmQ==")
+        XCTAssertEqual(h["x-argus"], "8oHAH26Sbp9WBxIQWA8MN9eox+aFcBalk7RNICCaGHil3RQ08294iTPr033RHVuDHBXebQoyWPx3dptvAcnUf5wj8OGGghydhM6rKbcdT44GO9JrSbJ+xb7HiIy7KCI/hPe43JbsOul6jrkQPvB3wy2e110eW0R6X+31c9tNkf77Nmr71ZoURP8WmKeentCGWaP5U4/isouoKGDUCFsThVjzUtHmZTX2dmnActmF4aAQsnECEvIp4xN0DZQjaLZprmZJvzDb8koHedNSDROiZWl7")
         XCTAssertEqual(h["x-ladon"], "AQIDBN3Xttm3qfFgkTVv7tBrb9bF8APHUjBLe2ja98bNrRn+")
         XCTAssertNil(h["x-gorgon"])
         XCTAssertNil(h["x-medusa"])

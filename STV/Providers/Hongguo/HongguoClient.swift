@@ -577,13 +577,14 @@ actor HongguoClient {
         var sawSoftReject = false
         await refreshDeviceIfStaleForPlayback()
         _ = try? await ensureDevice()   // make sure a device_register device exists before video_model
-        // Full Argus 551 / Ladon on single video_model first; legacy batch remains a fallback.
+        // Signed official playback (hongguo-web verified flow: GET video_tab → POST multi_video_model) first;
+        // legacy batch remains a fallback.
         let pureDid = Self.purePlayerDeviceID
-        if let r = try await resolvePureLevels(vid, sawSoftReject: &sawSoftReject) { return r }
+        if let r = try await resolveOfficialLevels(vid, sawSoftReject: &sawSoftReject) { return r }
         // Soft reject on the registered device = that device has gone stale upstream. Re-register once and retry,
         // instead of falling through to the legacy dialects (they use minted devices and are soft-rejected anyway).
         if sawSoftReject, await reregisterAfterSoftReject(failedDeviceId: pureDid) {
-            if let r = try await resolvePureLevels(vid, sawSoftReject: &sawSoftReject) { return r }
+            if let r = try await resolveOfficialLevels(vid, sawSoftReject: &sawSoftReject) { return r }
         }
         for level in [3, 4] {
             try Task.checkCancellation()
@@ -619,49 +620,86 @@ actor HongguoClient {
         throw ProviderError.upstream("取链失败")
     }
 
-    /// Pure video_model at level 3 then 4. An empty body at level 3 means the device is rejected, so level 4 is
-    /// skipped (it would only spend another request on a dead device).
-    private func resolvePureLevels(_ vid: String, sawSoftReject: inout Bool) async throws -> HGResolvedVideo? {
-        for level in [3, 4] {
-            try Task.checkCancellation()
-            do {
-                let r = try await resolvePure(vid, level: level)
-                if r.err == Self.byteVC2Only && level == 3 { continue }
-                return r
-            } catch is PlayerEmptyBody {
-                sawSoftReject = true
-                NSLog("[HG] resolvePure empty level=%d", level)
-                return nil
-            } catch {
-                NSLog("[HG] resolvePure error level=%d: %@", level, String(describing: error))
-            }
+    /// Official signed playback (hongguo-web verified flow). An empty body means the device is rejected upstream.
+    private func resolveOfficialLevels(_ vid: String, sawSoftReject: inout Bool) async throws -> HGResolvedVideo? {
+        do {
+            return try await resolveOfficial(vid)
+        } catch is PlayerEmptyBody {
+            sawSoftReject = true
+            NSLog("[HG] resolveOfficial empty")
+            return nil
+        } catch {
+            NSLog("[HG] resolveOfficial error: %@", String(describing: error))
+            return nil
         }
-        return nil
     }
 
-    // MARK: pure player (gateway player_pure.go, 7.3.9.32 profile)
+    // MARK: official signed playback (aligned with hongguo-web signPlaybackRequest, 2026-11-16 verified)
+    //
+    // 关键对齐点（参考实现逐字段核对）：
+    //  1) x-argus protobuf field 16 (installId) 必须为空串 —— 带 iid 会被判伪造，上游回 200 + 空正文；
+    //  2) 首选签名 GET /reading/bookapi/video_tab/multi_video_model/v1/（73932 档，video_id 走 query，无 body）；
+    //  3) 仅当 GET 空正文时补发一次签名 POST /novel/player/multi_video_model/v1/（74332 档，gzip body，
+    //     x-ss-stub = wire 字节（gzip）的 md5 大写，Content-Encoding: gzip）；
+    //  4) query 编码与参考实现一致（encodeURIComponent + 额外转义 !'()），resolution 里的 * 必须转义成 %2A。
 
-    private static let purePlayerHost = "api5-normal-sinfonlineb.fqnovel.com"
-    private static let purePlayerPath = "/novel/player/video_model/v1/"
-    private static let purePlayerVersionName = "7.3.9.32"
-    private static let purePlayerVersionCode = "73932"
-    private static let purePlayerUA = "com.phoenix.read/73932 (Linux; U; Android 14; zh_CN; 23127PN0CC; Build/UKQ1.230804.001; Cronet/TTNetVersion:8d40f833 2026-03-03 QuicVersion:21ac1950 2025-11-18)"
+    private static let officialHost = "api5-normal-sinfonlineb.fqnovel.com"
+    private static let officialTabPath = "/reading/bookapi/video_tab/multi_video_model/v1/"
+    private static let officialModelPath = "/novel/player/multi_video_model/v1/"
+
+    private static func officialUA(_ versionCode: String) -> String {
+        "com.phoenix.read/\(versionCode) (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
+    }
+
+    // 与参考实现 encodeValue 完全一致：unreserved = alnum + -_.~*（!'() 额外转义，* 转义为 %2A）。
+    private static func officialEscape(_ s: String) -> String {
+        var o = ""
+        for c in s.utf8 {
+            let unreserved = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
+                || c == 45 || c == 95 || c == 46 || c == 126 || c == 42
+            if unreserved { o.append(Character(UnicodeScalar(c))) }
+            else { o += String(format: "%%%02X", c) }
+        }
+        return o
+    }
+
+    private static func officialQuery(_ pairs: [(String, String)]) -> String {
+        pairs.map { officialEscape($0.0) + "=" + officialEscape($0.1) }.joined(separator: "&")
+    }
+
+    /// BASE_DEVICE（红果 7.x 匿名档，参考实现）：73932 用于 video_tab，74332 用于旧 POST 链路，不能混用。
+    private static func officialBasePairs(versionCode: String, versionName: String) -> [(String, String)] {
+        [("ac", "wifi"), ("channel", "update_64"), ("aid", "8662"), ("app_name", "novelread"),
+         ("version_code", versionCode), ("version_name", versionName), ("device_platform", "android"), ("os", "android"),
+         ("ssmix", "a"), ("device_type", "25053RT47C"), ("device_brand", "Redmi"), ("language", "zh"), ("os_api", "36"),
+         ("os_version", "16"), ("manifest_version_code", versionCode), ("resolution", "1280*2772"), ("dpi", "520"),
+         ("update_version_code", versionCode), ("host_abi", "arm64-v8a"), ("dragon_device_type", "phone"),
+         ("pv_player", versionCode), ("compliance_status", "0"), ("need_personal_recommend", "1"), ("player_so_load", "1"),
+         ("is_android_pad_screen", "0")]
+    }
+
     // Upstream may reject freshly minted devices with 200 + 0 bytes. No device is bundled in the open-source build:
-    // by default this install's own minted device is used; you may set your own known-good pair via
+    // by default this install's own registered device is used; you may set your own known-good pair via
     // UserDefaults key `stv.hg.purePlayerDevice` = "<device_id>,<iid>".
     private static var purePlayerDevice: (did: String, iid: String) {
         if let s = UserDefaults.standard.string(forKey: "stv.hg.purePlayerDevice") {
             let p = s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             if p.count == 2, !p[0].isEmpty, !p[1].isEmpty { return (p[0], p[1]) }
         }
-        // video_model only accepts devices that went through device_register (2026-11-11: a locally minted
-        // did/iid gets 200 + 0 bytes, a freshly registered one returns video_model). Prefer the registered one.
+        // 取址只接受走过 device_register 的设备（本地 mint 的 did/iid 会 200 + 0 bytes）。优先用注册设备。
         if let r = HGDevice.load() { return (r.deviceId, r.iid) }
         let d = HGPlayerDevice.current()
         return (d.deviceId, d.iid)
     }
     private static var purePlayerDeviceID: String { purePlayerDevice.did }
-    private static var purePlayerIID: String { purePlayerDevice.iid }
+
+    /// 取流身份：注册设备 + cdid（注册回报带 cdid；没有就用 did 派生一个稳定值）。
+    private static func officialIdentity() -> (did: String, iid: String, cdid: String) {
+        let d = purePlayerDevice
+        let registeredCdid = HGDevice.load()?.cdid ?? ""
+        let cdid = registeredCdid.isEmpty ? stableUUID("hongguo-player-cdid:" + d.did) : registeredCdid
+        return (d.did, d.iid, cdid)
+    }
 
     private static func stableUUID(_ seed: String) -> String {
         var b = Array(SHA256.hash(data: Data(seed.utf8)).prefix(16))
@@ -672,64 +710,105 @@ actor HongguoClient {
         return [c[0..<8], c[8..<12], c[12..<16], c[16..<20], c[20..<32]].map { String($0) }.joined(separator: "-")
     }
 
-    private static func purePlayerPairs() -> [(String, String)] {
-        let did = purePlayerDeviceID
-        let cdid = stableUUID("hongguo-player-cdid:" + did)
-        let openudid = HGPlayerSign.hexStr(Array(SHA256.hash(data: Data(("hongguo-player-openudid:" + did).utf8)).prefix(8)))
-        let vc = purePlayerVersionCode
-        return [("iid", purePlayerIID), ("device_id", did), ("ac", "wifi"), ("channel", "xiaomi_8662_64"), ("aid", "8662"),
-                ("app_name", "novelread"), ("cdid", cdid), ("version_code", vc), ("version_name", purePlayerVersionName),
-                ("device_platform", "android"), ("os", "android"), ("ssmix", "a"), ("device_type", "23127PN0CC"),
-                ("device_brand", "Xiaomi"), ("language", "zh"), ("os_api", "34"), ("os_version", "14"),
-                ("manifest_version_code", vc), ("resolution", "1200*2670"), ("dpi", "460"), ("update_version_code", vc),
-                ("host_abi", "arm64-v8a"), ("dragon_device_type", "phone"), ("pv_player", vc), ("compliance_status", "0"),
-                ("need_personal_recommend", "1"), ("player_so_load", "1"), ("is_android_pad_screen", "0"), ("openudid", openudid)]
+    /// 共享的签名头装配（参考实现 signPlaybackRequest 的 header 组）。
+    private static func applyOfficialHeaders(_ req: inout URLRequest, headers: [String: String], ua: String, passportSDK: String, bodyHeaders: Bool) {
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json; charset=utf-8,application/x-protobuf", forHTTPHeaderField: "Accept")
+        req.setValue("2", forHTTPHeaderField: "sdk-version")
+        req.setValue("0", forHTTPHeaderField: "x-xs-from-web")
+        req.setValue(passportSDK, forHTTPHeaderField: "passport-sdk-version")
+        req.setValue("8662", forHTTPHeaderField: "x-ss-dp")
+        req.setValue("", forHTTPHeaderField: "x-tt-dt")
+        req.setValue("cn", forHTTPHeaderField: "x-tt-store-region")
+        req.setValue("did", forHTTPHeaderField: "x-tt-store-region-src")
+        if bodyHeaders {
+            req.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+            req.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
+        } else {
+            req.setValue("t=0;n=0", forHTTPHeaderField: "x-tt-request-tag")
+        }
+        for (k, v) in headers where !v.isEmpty { req.setValue(v, forHTTPHeaderField: k) }
     }
 
-    private func resolvePure(_ vid: String, level: Int) async throws -> HGResolvedVideo {
-        // Keep the previously compatible single-video body; sign its exact bytes.
-        let bodyObj: [String: Any] = ["video_id": vid,
-                                      "biz_param": ["video_id_type": 0, "need_all_video_definition": true, "video_platform": 3,
-                                                    "device_level": level >= 4 ? 4 : 3] as [String: Any]]
-        let body = J.encodeSorted(bodyObj)
-        var last: Error = PlayerEmptyBody()
-        for attempt in 0..<2 {
-            try Task.checkCancellation()
-            if attempt > 0 { try await Task.sleep(for: .milliseconds(500)) }
-            let now = Date()
-            let nowMs = Int64(now.timeIntervalSince1970 * 1000)
-            let ts = UInt32(nowMs / 1000)
-            let q = HGPlayerSign.encodeQuery(Self.purePlayerPairs() + [("ts", String(ts)), ("_rticket", String(nowMs))])
-            let headers = try HGPlayerSign.playbackHeaders(query: q, body: Array(body), timestamp: ts)
-            var req = URLRequest(url: URL(string: "https://" + Self.purePlayerHost + Self.purePlayerPath + "?" + q)!)
-            req.httpMethod = "POST"
-            req.httpBody = body
-            req.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            for (k, v) in headers where !v.isEmpty { req.setValue(v, forHTTPHeaderField: k) }
-            req.setValue(Self.purePlayerUA, forHTTPHeaderField: "User-Agent")
-            req.setValue("8662", forHTTPHeaderField: "x-ss-dp")
-            req.setValue("101", forHTTPHeaderField: "lc")
-            req.setValue("\(nowMs)-\(Int64(now.timeIntervalSince1970 * 1_000_000_000) & 0x7fffffff)", forHTTPHeaderField: "x-reading-request")
-            do {
-                let (data, resp) = try await playerSession.data(for: req)
-                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                if status == 429 || status >= 500 { last = ProviderError.upstream("video_model HTTP \(status)"); continue }
-                guard status == 200 else { throw ProviderError.upstream("video_model HTTP \(status)") }
-                if data.isEmpty { NSLog("[HG] resolvePure HTTP 200 empty level=%d", level); throw PlayerEmptyBody() }
-                let j = try J.parse(data)
-                for c in [j["code"], J.dict(j["BaseResp"])["StatusCode"]] where c != nil {
-                    if J.str(c) != "0" { throw ProviderError.upstream("video_model code=\(J.str(c)) \(J.str(j["message"]))") }
-                }
-                guard let raw = Self.videoModelJSON(J.dict(j["data"])["video_model"]) else { throw ProviderError.upstream("video_model 缺失") }
-                let r = try await materialize(raw, vid: vid)
-                NSLog("[HG] resolvePure ok level=%d streams=%d", level, r.streams.count)
-                return r
-            } catch let e as URLError {
-                last = e
-            }
+    private func resolveOfficial(_ vid: String) async throws -> HGResolvedVideo {
+        let ident = Self.officialIdentity()
+        // 1) 签名 GET video_tab（73932 档）。
+        do {
+            let raw = try await officialTabModel(vid, identity: ident)
+            let r = try await materialize(raw, vid: vid)
+            NSLog("[HG] official video_tab ok streams=%d device=%@", r.streams.count, ident.did)
+            return r
+        } catch is PlayerEmptyBody {
+            // 2) 仅空正文时补发旧链路：签名 POST multi_video_model（74332 档，gzip body）。
+            NSLog("[HG] official video_tab empty, fall back to signed POST model")
+            let raw = try await officialModel(vid, identity: ident)
+            let r = try await materialize(raw, vid: vid)
+            NSLog("[HG] official model ok streams=%d device=%@", r.streams.count, ident.did)
+            return r
         }
-        throw last
+    }
+
+    private func officialTabModel(_ vid: String, identity: (did: String, iid: String, cdid: String)) async throws -> [String: Any] {
+        let nowMs = Self.nowMs()
+        let ts = UInt32(nowMs / 1000)
+        var pairs = Self.officialBasePairs(versionCode: "73932", versionName: "7.3.9.32")
+        pairs += [("device_id", identity.did), ("iid", identity.iid), ("cdid", identity.cdid)]
+        pairs += [("video_id", vid), ("video_id_type", "0"), ("device_level", "1"), ("need_all_video_definition", "1"),
+                  ("need_mp4_align", "0"), ("use_os_player", "0"), ("video_platform", "1024"), ("source", "0"), ("from_video_id", "")]
+        pairs += [("ts", String(ts)), ("_rticket", String(nowMs))]
+        let q = Self.officialQuery(pairs)
+        let headers = try HGPlayerSign.playbackHeaders(query: q, body: [], timestamp: ts)
+        var req = URLRequest(url: URL(string: "https://" + Self.officialHost + Self.officialTabPath + "?" + q)!)
+        req.httpMethod = "GET"
+        Self.applyOfficialHeaders(&req, headers: headers, ua: Self.officialUA("73932"), passportSDK: "50561", bodyHeaders: false)
+        let (data, resp) = try await playerSession.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw ProviderError.upstream("video_tab HTTP \(status)") }
+        if data.isEmpty { NSLog("[HG] official video_tab HTTP 200 empty"); throw PlayerEmptyBody() }
+        let j = try J.parse(data)
+        for c in [j["code"], j["Code"], J.dict(j["BaseResp"])["StatusCode"]] where c != nil {
+            if J.str(c) != "0" { throw ProviderError.upstream("video_tab code=\(J.str(c)) \(J.str(j["message"]))") }
+        }
+        // video_tab 结构：data.video_model_data[epId].video_model（缺省退回 data[epId]）。
+        let d = J.dict(j["data"])
+        let rows = J.dict(d["video_model_data"]).isEmpty ? d : J.dict(d["video_model_data"])
+        guard let raw = Self.videoModelJSON(J.dict(rows[vid])["video_model"]) else {
+            throw ProviderError.upstream("video_tab 缺少本集 video_model")
+        }
+        return raw
+    }
+
+    private func officialModel(_ vid: String, identity: (did: String, iid: String, cdid: String)) async throws -> [String: Any] {
+        let nowMs = Self.nowMs()
+        let ts = UInt32(nowMs / 1000)
+        var pairs = Self.officialBasePairs(versionCode: "74332", versionName: "7.4.3.32")
+        pairs += [("device_id", identity.did), ("iid", identity.iid), ("cdid", identity.cdid),
+                  ("ts", String(ts)), ("_rticket", String(nowMs))]
+        let q = Self.officialQuery(pairs)
+        // 参考实现 payload（键序无关：x-ss-stub 与 x-argus 覆盖的都是实际发出的 wire 字节）。
+        let bodyObj: [String: Any] = ["biz_param": ["detail_page_version": 0, "device_level": 3, "disable_digg_stat": false,
+                                                    "need_all_video_definition": true, "need_mp4_align": false, "use_os_player": false,
+                                                    "use_server_dns": false, "video_platform": 1024] as [String: Any],
+                                      "mixed_video_id_map": ["1004": [vid]] as [String: Any]]
+        let gz = Gzip.compress(J.encodeSorted(bodyObj))
+        let headers = try HGPlayerSign.playbackHeaders(query: q, body: Array(gz), timestamp: ts)
+        var req = URLRequest(url: URL(string: "https://" + Self.officialHost + Self.officialModelPath + "?" + q)!)
+        req.httpMethod = "POST"
+        req.httpBody = gz
+        Self.applyOfficialHeaders(&req, headers: headers, ua: Self.officialUA("74332"), passportSDK: "5051452", bodyHeaders: true)
+        let (data, resp) = try await playerSession.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw ProviderError.upstream("multi_video_model HTTP \(status)") }
+        if data.isEmpty { NSLog("[HG] official model HTTP 200 empty"); throw PlayerEmptyBody() }
+        let j = try J.parse(data)
+        for c in [j["code"], j["Code"], J.dict(j["BaseResp"])["StatusCode"]] where c != nil {
+            if J.str(c) != "0" { throw ProviderError.upstream("multi_video_model code=\(J.str(c)) \(J.str(j["message"]))") }
+        }
+        // 旧链路结构：data[epId].video_model。
+        guard let raw = Self.videoModelJSON(J.dict(J.dict(j["data"])[vid])["video_model"]) else {
+            throw ProviderError.upstream("multi_video_model 缺少本集 video_model")
+        }
+        return raw
     }
 
     private static let byteVC2Only = "该集仅返回 ByteVC2 编码，iOS 无法解码"
