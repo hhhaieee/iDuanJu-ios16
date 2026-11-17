@@ -50,7 +50,7 @@ enum BackupService {
 
         let plist: Data
         if let d = try? PropertyListSerialization.data(fromPropertyList: kept as NSDictionary,
-                                                       format: .binary, options: []) {
+                                                       format: .binary) {
             plist = d
         } else {
             plist = Data()
@@ -100,7 +100,7 @@ enum BackupService {
 
         var count = 0
         if let pdata = Data(base64Encoded: payload.defaultsPlist),
-           let obj = try? PropertyListSerialization.propertyList(from: pdata, options: [], format: nil),
+           let obj = try? PropertyListSerialization.propertyList(from: pdata, format: nil),
            let dict = obj as? [String: Any] {
             for (k, v) in dict {
                 if shouldSkip(k) { continue }
