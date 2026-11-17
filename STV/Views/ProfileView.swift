@@ -5,10 +5,11 @@ struct ProfileView: View {
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var gate = SourceGate.shared
     @ObservedObject private var proxy = ProxySettings.shared
+    @ObservedObject private var downloads = TGDownloads.shared
     @EnvironmentObject private var appearance: AppearanceModel
     @State private var showBackup = false
     @State private var showExport = false
-    @State private var exportDoc = BackupDocument(data: Data())
+    @State private var exportURL: URL?
     @State private var showImport = false
 
     var body: some View {
@@ -36,7 +37,7 @@ struct ProfileView: View {
                 VStack(spacing: 0) {
                     link("Telegram 频道", "paperplane", .channels, trailing: "\(TGStore.shared.visibleChannels.count) 个")
                     link("漫画", "book", .mangaHome, trailing: MangaStore.shared.favorites.isEmpty ? nil : "收藏 \(MangaStore.shared.favorites.count)")
-                    link("下载管理", "arrow.down.circle", .downloads, trailing: TGDownloads.shared.visible.isEmpty ? nil : "\(TGDownloads.shared.visible.count)")
+                    link("下载管理", "arrow.down.circle", .downloads, trailing: downloads.visible.isEmpty ? nil : "\(downloads.visible.count)")
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
@@ -58,7 +59,6 @@ struct ProfileView: View {
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
                         }.padding(14)
                     }.buttonStyle(.plain).accessibilityIdentifier("profile.backup")
-                    Divider().padding(.leading, 52)
                     HStack {
                         Image(systemName: "network").frame(width: 24)
                         Text("网络代理").foregroundStyle(STVTheme.text)
@@ -119,8 +119,14 @@ struct ProfileView: View {
                 Text("把本机的收藏、观看记录、片源开关与排序、插件（含苹果CMS）、红果设备身份、小说书架等数据打包备份。换版本或重装后导入即可恢复。")
                     .font(.subheadline).foregroundStyle(STVTheme.secondary)
                 Button {
-                    exportDoc = BackupDocument(data: BackupService.makeBackupData())
-                    showExport = true
+                    let tmp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(BackupService.suggestedFilename())
+                    if (try? BackupService.makeBackupData().write(to: tmp, options: .atomic)) != nil {
+                        exportURL = tmp
+                        showExport = true
+                    } else {
+                        message = "生成备份文件失败，请重试。"
+                    }
                 } label: {
                     Label("导出备份", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).controlSize(.large)
@@ -137,12 +143,17 @@ struct ProfileView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
             // fileExporter / fileImporter 必须挂在 sheet 内部：iOS 不允许同一个 view
             // 在 sheet 已 present 时再 present 第二个 modal，挂在外层会导致按钮点了没反应。
-            .fileExporter(isPresented: $showExport,
-                          document: exportDoc,
-                          contentType: .idjBackup,
-                          defaultFilename: BackupService.suggestedFilename()) { result in
-                if case .success = result { message = "备份已导出到「文件」App；请妥善保存。" }
-                else { message = "导出失败，请重试。" }
+            .sheet(isPresented: $showExport) {
+                if let url = exportURL {
+                    UIKitDocumentExporter(url: url, asCopy: true) { result in
+                        showExport = false
+                        switch result {
+                        case .success: message = "备份已导出到「文件」App；请妥善保存。"
+                        case .failure(let e):
+                            if !(e is CancellationError) { message = "导出失败，请重试。" }
+                        }
+                    }
+                }
             }
             .fileImporter(isPresented: $showImport, allowedContentTypes: [.idjBackup, .json]) { result in
                 switch result {
