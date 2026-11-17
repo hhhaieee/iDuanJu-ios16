@@ -126,7 +126,7 @@ struct PlayerProgressBar: View {
                         .accessibilityIdentifier("player.progress.bubble")
                 }
             }
-            .gesture(mini || duration <= 0 ? nil : DragGesture(minimumDistance: 0)
+            .gesture(mini || duration <= 0 ? nil : DragGesture(minimumDistance: 3)
                 .onChanged { v in
                     if drag == nil {
                         dragStart = played; scrubbing = true
@@ -142,7 +142,12 @@ struct PlayerProgressBar: View {
                     co.scrubPreview = nil
                     scrubbing = false
                     onInteract()
-                })
+                }
+                // 单击与拖动互斥，避免零距离 drag 在手势仲裁中吞掉静止 tap，保证一次点击只跳转一次。
+                .exclusively(before: SpatialTapGesture().onEnded { v in
+                    co.seek(fraction: min(1, max(0, v.location.x / max(1, w))))
+                    onInteract()
+                }))
         }
         .frame(height: mini ? Self.miniH : 22)
         .task(id: drag.map { Int($0 * max(1, co.duration) / PlayerThumbnailer.bucket) }) {
