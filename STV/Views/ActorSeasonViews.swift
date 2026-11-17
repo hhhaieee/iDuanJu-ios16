@@ -95,7 +95,18 @@ struct CastShelf: View {
 
     private func cell(_ c: HGCelebrity) -> some View {
         VStack(spacing: 6) {
-            ActorAvatar(url: c.avatar, size: 64)
+            Group {
+                if c.avatar.isEmpty {
+                    // 无头像演员：用姓名首字 + 渐变圆占位，避免出现空白/灰块。
+                    Text(String(c.name.prefix(1)))
+                        .font(.system(size: 24, weight: .semibold)).foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(LinearGradient(colors: [STVTheme.accent, STVTheme.accentWarm],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
+                } else {
+                    ActorAvatar(url: c.avatar, size: 64)
+                }
+            }
             Text(c.name).font(.caption.weight(.semibold)).foregroundStyle(STVTheme.text).lineLimit(1)
             if !c.role.isEmpty {
                 Text(c.role).font(.caption2).foregroundStyle(STVTheme.secondary).lineLimit(1)
