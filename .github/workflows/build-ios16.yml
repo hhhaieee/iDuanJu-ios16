@@ -8,8 +8,9 @@ on:
 
 jobs:
   build:
-    # macos-15-intel: 4 vCPU / 14GB 内存。arm64 标准机只有 7GB，编译 TDLibKit（整包优化）会 OOM 被杀。
-    runs-on: macos-15-intel
+    # macos-15-intel 已无法调度（2026-11-17 起作业零日志秒失败、runner 不再分配）。
+    # 改 macos-15-large：同为 14GB 内存，TDLibKit 整包优化不会 OOM。
+    runs-on: macos-15-large
     steps:
       - name: Checkout
         uses: actions/checkout@v4
