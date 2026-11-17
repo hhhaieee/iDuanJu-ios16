@@ -259,6 +259,11 @@ struct PlayerScreen: View {
         .onChange(of: co.current) { _ in scrubbing = false; flashChrome() }
         .onChange(of: co.readyIndex) { index in if index != nil { flashChrome() } }
         .onChange(of: landscape) { l in if !l { locked = false }; panel = nil }
+        .onChange(of: co.downloadMessage) { msg in if let msg { showOSD(msg) } }
+        .onChange(of: locked) { isLocked in
+            if isLocked { OrientationGate.lockCurrent(landscape: landscape) }
+            else { OrientationGate.unlockRotation() }
+        }
         .sheet(item: $verifyTarget) { t in SiteVerifySheet(target: t) { if let c = co.current { co.activate(c) } } }
         .sheet(isPresented: $danmakuSheet, onDismiss: flashChrome) {
             DanmakuSettingsSheet(available: series.source == .hongguo)
@@ -874,8 +879,31 @@ struct PlayerScreen: View {
                 .padding(.horizontal, 12).padding(.bottom, 10)
             }
         case .subtitles:
-            TrackPopover(title: "字幕", options: co.subtitleOptions, selected: co.subtitleSelected, allowsOff: true,
-                         emptyText: "当前视频没有可选字幕") { o in co.selectSubtitle(o); closePanel() }
+            VStack(alignment: .leading, spacing: 0) {
+                TrackPopover(title: "字幕", options: co.subtitleOptions, selected: co.subtitleSelected, allowsOff: true,
+                             emptyText: "当前视频没有可选字幕") { o in co.selectSubtitle(o); closePanel() }
+                Divider().overlay(.white.opacity(0.12)).padding(.horizontal, 12).padding(.vertical, 4)
+                Button {
+                    co.downloadCurrentEpisode()
+                    closePanel()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: co.isDownloading ? "arrow.down.circle.dotted" : "arrow.down.circle")
+                            .font(.system(size: 16)).foregroundStyle(STVTheme.accent).frame(width: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(co.isDownloading ? "正在下载本集…" : "下载本集")
+                                .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                            Text("下载后可离线观看，也能存到手机相册")
+                                .font(.caption).foregroundStyle(.white.opacity(0.55))
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).disabled(co.isDownloading)
+                .accessibilityLabel("下载本集").accessibilityIdentifier("player.download")
+            }
         case .episodes:
             EpisodesPopover(episodes: co.episodes, current: co.current ?? 0,
                             seasons: seasonChips,
