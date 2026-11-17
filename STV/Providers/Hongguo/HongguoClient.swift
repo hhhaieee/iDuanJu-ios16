@@ -7,8 +7,9 @@ actor HongguoClient {
     static let shared = HongguoClient()
 
     private let session: URLSession
-    /// 取流会话（播放解析）。保持直连、不走代理：软拒绝根因在签名/设备信任，与出口 IP 无关；
-    /// 且系统代理/SOCKS 反而更容易触发 200 空包。
+    /// 红果播放专用会话：device_register + 取流统一走它，强制直连、不走代理。
+    /// 注册与取流必须同一出口 IP，否则上游判定「设备身份 IP 漂移」→ 200 空正文软拒绝。
+    /// 系统代理/SOCKS 也会触发软拒绝，故这里显式清空 connectionProxyDictionary。
     let playerSession: URLSession
     private var device: HGDevice?
     private var registering: Task<HGDevice, Error>?
@@ -748,7 +749,9 @@ actor HongguoClient {
         req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         req.setValue(Self.v5UA, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 12
-        let (data, resp) = try await session.data(for: req)
+        // 与取流共用 playerSession（强制直连）：注册和取流必须同一出口 IP，
+        // 否则上游判定设备身份 IP 漂移 -> 200 空正文软拒绝（搜索/详情/榜单正常但唯独播放失败）。
+        let (data, resp) = try await playerSession.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw ProviderError.upstream("V5 device_register HTTP \(status)") }
         let j = try J.parse(data)
