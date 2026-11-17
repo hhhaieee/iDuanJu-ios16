@@ -695,7 +695,7 @@ actor HongguoClient {
     }
 
     private static func v5Query(_ pairs: [(String, String)]) -> String {
-        pairs.map { v5Escape($0.0) + "=" + v5Escape($1) }.joined(separator: "&")
+        pairs.map { p in v5Escape(p.0) + "=" + v5Escape(p.1) }.joined(separator: "&")
     }
 
     /// THL to()：筛 _rticket。第一个 Ce 的 query 参数在参考实现里是 querystring.parse 结果（无 .length，
