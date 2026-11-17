@@ -50,6 +50,16 @@ struct ProfileView: View {
                 .padding(.horizontal, 16)
                 VStack(alignment: .leading, spacing: 0) {
                     link("数据源诊断", "stethoscope", .diagnostics)
+                    Divider().padding(.leading, 52)
+                    Button { showBackup = true } label: {
+                        HStack {
+                            Image(systemName: "archivebox").frame(width: 24)
+                            Text("备份与恢复").foregroundStyle(STVTheme.text)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
+                        }.padding(14).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("profile.backup")
+                    Divider().padding(.leading, 52)
                     HStack {
                         Image(systemName: "network").frame(width: 24)
                         Text("网络代理").foregroundStyle(STVTheme.text)
@@ -77,15 +87,6 @@ struct ProfileView: View {
                                 .font(.caption).foregroundStyle(STVTheme.secondary)
                         }.padding(.horizontal, 14).padding(.bottom, 14)
                     }
-                    Divider().padding(.leading, 52)
-                    Button { showBackup = true } label: {
-                        HStack {
-                            Image(systemName: "externaldrive.backup").frame(width: 24)
-                            Text("备份与恢复").foregroundStyle(STVTheme.text)
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
-                        }.padding(14).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("profile.backup")
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
@@ -106,28 +107,6 @@ struct ProfileView: View {
         .background(STVTheme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showBackup) { backupPanel }
-        .fileExporter(isPresented: $showExport,
-                      document: exportDoc,
-                      contentType: .idjBackup,
-                      defaultFilename: BackupService.suggestedFilename()) { result in
-            if case .success = result { message = "备份已导出到「文件」App；请妥善保存。" }
-            else { message = "导出失败，请重试。" }
-        }
-        .fileImporter(isPresented: $showImport, allowedContentTypes: [.idjBackup, .json]) { result in
-            switch result {
-            case .success(let url):
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                if let data = try? Data(contentsOf: url) {
-                    let r = BackupService.restore(from: data)
-                    message = r.message
-                } else {
-                    message = "无法读取所选文件。"
-                }
-            case .failure:
-                message = "未选择文件或读取失败。"
-            }
-        }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) { message = nil }
         } message: {
@@ -157,6 +136,35 @@ struct ProfileView: View {
             .background(STVTheme.bg.ignoresSafeArea())
             .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
+            // fileExporter / fileImporter 必须挂在 sheet 内部：iOS 不允许同一个 view
+            // 在 sheet 已 present 时再 present 第二个 modal，挂在外层会导致按钮点了没反应。
+            .fileExporter(isPresented: $showExport,
+                          document: exportDoc,
+                          contentType: .idjBackup,
+                          defaultFilename: BackupService.suggestedFilename()) { result in
+                if case .success = result { message = "备份已导出到「文件」App；请妥善保存。" }
+                else { message = "导出失败，请重试。" }
+            }
+            .fileImporter(isPresented: $showImport, allowedContentTypes: [.idjBackup, .json]) { result in
+                switch result {
+                case .success(let url):
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    if let data = try? Data(contentsOf: url) {
+                        let r = BackupService.restore(from: data)
+                        message = r.message
+                    } else {
+                        message = "无法读取所选文件。"
+                    }
+                case .failure:
+                    message = "未选择文件或读取失败。"
+                }
+            }
+            .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+                Button("好", role: .cancel) { message = nil }
+            } message: {
+                Text(message ?? "")
+            }
         }
         .presentationDetents([.medium])
     }
