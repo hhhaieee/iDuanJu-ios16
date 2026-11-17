@@ -83,3 +83,73 @@ struct HGDevice: Codable {
         return dev
     }
 }
+
+/// Player-only identity. Search registration stays in `HGDevice`; playback must use the same
+/// 7.3.9.32 / Xiaomi profile carried by the pure video_model request.
+struct HGPlayerIdentity: Codable {
+    var deviceId: String
+    var iid: String
+    var cdid: String
+    var openudid: String
+    var registeredAt: Double
+    static let profile = "73932-xiaomi-23127PN0CC"
+    static let maxAge: TimeInterval = 7 * 60
+    var isUsable: Bool { !deviceId.isEmpty && !iid.isEmpty && !cdid.isEmpty && !openudid.isEmpty && Date().timeIntervalSince1970 - registeredAt < Self.maxAge }
+
+    private static var fileURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("hongguo_player_registered_device.json")
+    }
+
+    static func load() -> HGPlayerIdentity? {
+        for url in [fileURL, URL(fileURLWithPath: fileURL.path + ".bak")] {
+            guard let data = try? Data(contentsOf: url), let id = try? JSONDecoder().decode(HGPlayerIdentity.self, from: data), id.isUsable else { continue }
+            return id
+        }
+        return nil
+    }
+
+    func save() {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        if let old = try? Data(contentsOf: Self.fileURL) { try? old.write(to: URL(fileURLWithPath: Self.fileURL.path + ".bak"), options: .atomic) }
+        try? data.write(to: Self.fileURL, options: .atomic)
+    }
+
+    static func register(session: URLSession) async throws -> HGPlayerIdentity {
+        let cdid = HGDevice.uuid4(), openudid = Bytes.hex(Bytes.random(8))
+        let query = "aid=8662&app_name=novelread&version_code=73932&version_name=7.3.9.32&device_platform=android&os=android&ssmix=a" +
+            "&language=zh&channel=xiaomi_8662_64&device_type=23127PN0CC&device_brand=Xiaomi&resolution=1200*2670&dpi=460" +
+            "&host_abi=arm64-v8a&manifest_version_code=73932&update_version_code=73932&ac=wifi&app_type=normal&cpu_support64=true" +
+            "&os_api=34&os_version=14&cdid=\(cdid)&openudid=\(openudid)"
+        let header: [String: Any] = [
+            "display_name": "红果短剧", "aid": 8662, "channel": "xiaomi_8662_64", "package": "com.phoenix.read",
+            "app_version": "7.3.9.32", "version_code": 73932, "manifest_version_code": 73932, "update_version_code": 73932,
+            "sdk_version": "3.9.5", "sdk_target_version": 34, "os": "Android", "os_version": "14", "os_api": 34,
+            "device_model": "23127PN0CC", "device_brand": "Xiaomi", "device_manufacturer": "Xiaomi", "cpu_abi": "arm64-v8a",
+            "release_build": "UKQ1.230804.001", "density_dpi": 460, "display_density": "xxhdpi", "resolution": "2670x1200",
+            "language": "zh", "timezone": 8, "region": "CN", "tz_name": "Asia/Shanghai", "cdid": cdid, "openudid": openudid,
+            "clientudid": HGDevice.uuid4(), "google_aid": "", "req_id": HGDevice.uuid4(),
+        ]
+        let body = J.encodeSorted(["magic_tag": "ss_app_log", "header": header, "_gen_time": Int(Date().timeIntervalSince1970)])
+        var req = URLRequest(url: URL(string: "https://log.snssdk.com/service/2/device_register/?" + query)!, timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.httpBody = body
+        for (k, v) in HGSign.basicHeaders(params: query, body: Array(body)) { req.setValue(v, forHTTPHeaderField: k) }
+        req.setValue(HongguoClient.purePlayerUA, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        req.setValue("2", forHTTPHeaderField: "sdk-version")
+        let (data, resp) = try await session.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw ProviderError.upstream("播放器设备注册失败") }
+        let j = try J.parse(data)
+        let did = J.firstNonEmpty(J.str(j["device_id_str"]), J.str(j["device_id"]))
+        var iid = J.firstNonEmpty(J.str(j["install_id_str"]), J.str(j["install_id"]))
+        if iid.isEmpty || iid == "0" { iid = J.str(j["iid"]) }
+        guard did.allSatisfy(\.isNumber), iid.allSatisfy(\.isNumber), !did.isEmpty, did != "0", !iid.isEmpty, iid != "0" else {
+            throw ProviderError.upstream("播放器设备注册返回无效身份")
+        }
+        let id = HGPlayerIdentity(deviceId: did, iid: iid, cdid: cdid, openudid: openudid, registeredAt: Date().timeIntervalSince1970)
+        id.save()
+        return id
+    }
+}

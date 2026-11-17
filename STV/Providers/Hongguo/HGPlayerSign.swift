@@ -533,7 +533,7 @@ extension HGPlayerSign {
     /// Sign the exact wire body. Legacy Gorgon/Medusa must not be added to this dialect:
     /// the upstream rejects that combination even when Argus and Ladon are valid.
     static func playbackHeaders(query: String, body: [UInt8], timestamp: UInt32,
-                                argusRandom: UInt32? = nil, ladonRandom: UInt32? = nil) throws -> [String: String] {
+                                argusRandom: UInt32? = nil, ladonRandom: UInt32? = nil, emptyInstallToken: Bool = false) throws -> [String: String] {
         func param(_ name: String) -> String {
             for part in query.split(separator: "&") {
                 let pair = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
@@ -560,7 +560,7 @@ extension HGPlayerSign {
         bean += pBytes(13, Array(sm3(body.isEmpty ? [UInt8](repeating: 0, count: 16) : md5(body)).prefix(6)))
         bean += pBytes(14, Array(sm3(query.isEmpty ? [UInt8](repeating: 0, count: 16) : Array(query.utf8)).prefix(6)))
         bean += pBytes(15, uint(1, 1) + uint(2, 1) + uint(3, 1) + uint(7, 0xC792ECCC))
-        bean += str(16, param("iid")) + str(20, "none") + uint(21, 738)
+        bean += str(16, emptyInstallToken ? "" : param("iid")) + str(20, "none") + uint(21, 738)
         bean += pBytes(23, str(1, "NX551J") + uint(2, 8196) + uint(4, 0x80E0D800)) + uint(25, 2)
 
         let signKey = hexBytes("fc78e0a9657a0c748ce51559903ccf03510e51d3cff232d71343e88a321c5304")
