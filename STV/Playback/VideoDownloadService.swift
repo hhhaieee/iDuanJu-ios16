@@ -6,8 +6,10 @@ import AVFoundation
 ///
 /// Two stream families:
 /// - Progressive MP4 (红果 clear/CENC, most sites): download the body, locally decrypt CENC, write MP4.
-/// - HLS / AES-128 (黄果 etc.): let AVAssetExportSession mux into an MP4. AES streams go through the
-///   local clear playlist proxy so iOS 16 never has to fetch the out-of-band key itself.
+/// - HLS / AES-128 (黄果 etc.): 直下分片 → 本地 AES-128 解密 → 拼接明文 TS → 从本地文件 remux 成 MP4。
+///   不再让 AVAssetExportSession 经 LocalHLSProxy 读加密流：iOS 16 对「代理 + 带外 key + 多段 m3u8」的
+///   时序极不可靠（上游 m3u8/key/TS 与 ffmpeg 均正常，问题只在导出环节）。解密搬到本地后导出器只读
+///   一个本地明文 TS，彻底绕开代理时序。
 enum VideoDownloadService {
 
     enum DownloadError: LocalizedError {
@@ -91,30 +93,99 @@ enum VideoDownloadService {
         }
     }
 
-    /// Mux an HLS stream into a standalone MP4. AES-128 plays through the local clear proxy.
+    /// 直下 HLS 分片 → 本地 AES-128 解密 → 拼接明文 TS → 从本地文件 remux 成 MP4。
+    /// 导出器只读一个本地明文 TS，不再经过代理 / 带外 key（iOS 16 上那条链路时序不可靠）。
     private static func exportHLS(_ stream: HGStream, to dest: URL, progress: (@Sendable (Double) -> Void)?) async throws {
-        var assetURL: URL
-        if stream.kind == .hlsAES,
-           let clear = LocalHLSProxy.shared.playlistURL(stream.url, headers: stream.headers, strip: true, budget: 0, aesKey: stream.key),
-           let u = URL(string: clear) {
-            assetURL = u
-        } else {
-            guard let u = URL(string: stream.url) else { throw DownloadError.badURL }
-            assetURL = u
+        guard let playlistURL = URL(string: stream.url) else { throw DownloadError.badURL }
+
+        // 1) 拉 playlist（必要时 master → 码率最高的 variant），再过一遍广告过滤。
+        var text = String(decoding: try await fetchBytes(playlistURL, headers: stream.headers), as: UTF8.self)
+        if !text.localizedCaseInsensitiveContains("#EXTINF"),
+           let variant = pickVariant(text, base: playlistURL) {
+            text = String(decoding: try await fetchBytes(variant, headers: stream.headers), as: UTF8.self)
         }
-        var opts: [String: Any] = [:]
-        if stream.kind != .hlsAES, !stream.headers.isEmpty {
-            opts["AVURLAssetHTTPHeaderFieldsKey"] = stream.headers
+        text = HLSAdFilter.apply(text, base: playlistURL)
+        if Task.isCancelled { throw DownloadError.cancelled }
+
+        // 2) 解析 KEY / MEDIA-SEQUENCE / 分片行。
+        var seqBase: Int64 = 0
+        var explicitIV: Data?
+        var keyURI: URL?
+        var method = ""
+        var segments: [URL] = []
+        var expectSegment = false
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            let up = line.uppercased()
+            if up.hasPrefix("#EXT-X-MEDIA-SEQUENCE") {
+                seqBase = Int64(line.split(separator: ":").last?.trimmingCharacters(in: .whitespaces) ?? "") ?? 0
+            } else if up.hasPrefix("#EXT-X-KEY") {
+                method = HTML.groups("METHOD\\s*=\\s*([A-Za-z0-9-]+)", line).map { $0[1].uppercased() } ?? "AES-128"
+                if let m = HTML.groups("IV\\s*=\\s*(?:0[xX])?([0-9a-fA-F]{32})", line),
+                   let b = Bytes.fromHex(m[1]), b.count == 16 { explicitIV = Data(b) }
+                if let m = HTML.groups("URI\\s*=\\s*\"([^\"]+)\"", line),
+                   let u = URL(string: m[1], relativeTo: playlistURL)?.absoluteURL { keyURI = u }
+            } else if up.hasPrefix("#EXTINF") {
+                expectSegment = true
+            } else if !line.isEmpty, !line.hasPrefix("#"), expectSegment {
+                expectSegment = false
+                if let u = URL(string: line, relativeTo: playlistURL)?.absoluteURL { segments.append(u) }
+            }
         }
-        let asset = AVURLAsset(url: assetURL, options: opts)
-        try Task.checkCancellation()
-        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+        guard !segments.isEmpty else { throw DownloadError.noStream }
+
+        // 3) 密钥：优先 resolve 阶段已取到的 stream.key，否则按 KEY URI 取一次。
+        var key: Data?
+        if !stream.key.isEmpty, let b = Bytes.fromHex(stream.key), b.count == 16 { key = Data(b) }
+        if key == nil, let ku = keyURI {
+            let kd = try await fetchBytes(ku, headers: stream.headers)
+            if kd.count == 16 { key = kd }
+        }
+        let encrypted = method == "AES-128" && key != nil
+
+        // 4) 逐片下载 → 去伪头 → AES-128-CBC 解密 → 追加进本地明文 TS。
+        let merged = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".ts")
+        defer { try? FileManager.default.removeItem(at: merged) }
+        FileManager.default.createFile(atPath: merged.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: merged) else {
+            throw DownloadError.exportFailed("无法创建临时文件")
+        }
+        defer { try? handle.close() }
+
+        let total = Double(segments.count)
+        for (i, seg) in segments.enumerated() {
+            if Task.isCancelled { throw DownloadError.cancelled }
+            var chunk = LocalHLSProxy.stripFakeHeader(try await fetchBytes(seg, headers: stream.headers))
+            if encrypted, let k = key {
+                let segIV: Data
+                if let explicit = explicitIV { segIV = explicit }
+                else {
+                    // HLS 规范：无 IV 时用 media sequence number 作 128-bit 大端整数。
+                    let s = (seqBase + Int64(i)).bigEndian
+                    segIV = Data(repeating: 0, count: 8) + withUnsafeBytes(of: s) { Data($0) }
+                }
+                guard let clear = LocalHLSProxy.aesCBCDecrypt(chunk, key: k, iv: segIV) else {
+                    throw DownloadError.exportFailed("分片解密失败")
+                }
+                chunk = clear
+            }
+            try handle.write(contentsOf: chunk)
+            progress?(0.05 + 0.85 * Double(i + 1) / total)
+        }
+        try handle.close()
+        if Task.isCancelled { throw DownloadError.cancelled }
+
+        // 5) 从本地明文 TS remux 成 MP4（passthrough：只换容器不重编码，快且保画质）。
+        progress?(0.92)
+        let asset = AVURLAsset(url: merged)
+        let preset = AVAssetExportSession.allExportPresets().contains(AVAssetExportPresetPassthrough)
+            ? AVAssetExportPresetPassthrough : AVAssetExportPresetHighestQuality
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: preset) else {
             throw DownloadError.exportFailed("无法创建导出器")
         }
         exporter.outputURL = dest
         exporter.outputFileType = .mp4
         exporter.shouldOptimizeForNetworkUse = false
-        progress?(0.1) // HLS 导出无精确进度，先给个起始值让 UI 显示「下载中」
         do {
             try await exporter.export()
         } catch is CancellationError {
@@ -122,6 +193,48 @@ enum VideoDownloadService {
         } catch {
             throw DownloadError.exportFailed(error.localizedDescription)
         }
+        guard exporter.status == .completed else {
+            throw DownloadError.exportFailed(exporter.error?.localizedDescription ?? "导出未完成")
+        }
         progress?(1)
+    }
+
+    /// 下载字节（带 headers + UA），取消归一为 DownloadError.cancelled。
+    private static func fetchBytes(_ url: URL, headers: [String: String]) async throws -> Data {
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.allHTTPHeaderFields = headers
+        if req.value(forHTTPHeaderField: "User-Agent") == nil {
+            req.setValue(HuangguoClient.userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        let data: Data
+        do {
+            (data, _) = try await URLSession.shared.data(for: req)
+        } catch is CancellationError {
+            throw DownloadError.cancelled
+        }
+        return data
+    }
+
+    /// master playlist → 码率最高的 variant URL；非 master 返回 nil。
+    private static func pickVariant(_ text: String, base: URL) -> URL? {
+        var best: (URL, Int)?
+        var pending = 0
+        var expect = false
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = String(raw).trimmingCharacters(in: .whitespaces)
+            let up = line.uppercased()
+            if up.hasPrefix("#EXT-X-STREAM-INF") {
+                expect = true
+                pending = HTML.groups("BANDWIDTH=(\\d+)", line).flatMap { Int($0[1]) } ?? 0
+                continue
+            }
+            if expect, !line.isEmpty, !line.hasPrefix("#") {
+                expect = false
+                if let u = URL(string: line, relativeTo: base)?.absoluteURL,
+                   best == nil || pending >= best!.1 { best = (u, pending) }
+                pending = 0
+            }
+        }
+        return best?.0
     }
 }
