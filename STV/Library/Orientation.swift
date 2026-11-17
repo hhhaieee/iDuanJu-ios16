@@ -33,6 +33,17 @@ final class OrientationGate: NSObject, UIApplicationDelegate {
         }
         refresh()
     }
+    /// 锁屏按钮：把屏幕方向锁死在当前朝向（横 or 竖），手机翻转不再改变播放器画面。
+    @MainActor static func lockCurrent(landscape: Bool) {
+        let target: UIInterfaceOrientationMask = landscape ? .landscapeRight : .portrait
+        mask = target
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: landscape ? .landscapeRight : .portrait)) { _ in }
+        }
+        refresh()
+    }
+    /// 解锁：恢复跟随设备方向（播放中允许横竖屏）。
+    @MainActor static func unlockRotation() { unlock() }
     @MainActor private static func refresh() {
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for win in scene.windows {
