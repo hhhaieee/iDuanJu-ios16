@@ -6,6 +6,10 @@ struct ProfileView: View {
     @ObservedObject private var gate = SourceGate.shared
     @ObservedObject private var proxy = ProxySettings.shared
     @EnvironmentObject private var appearance: AppearanceModel
+    @State private var showBackup = false
+    @State private var showExport = false
+    @State private var exportDoc = BackupDocument(data: Data())
+    @State private var showImport = false
 
     var body: some View {
         ScrollView {
@@ -73,6 +77,15 @@ struct ProfileView: View {
                                 .font(.caption).foregroundStyle(STVTheme.secondary)
                         }.padding(.horizontal, 14).padding(.bottom, 14)
                     }
+                    Divider().padding(.leading, 52)
+                    Button { showBackup = true } label: {
+                        HStack {
+                            Image(systemName: "externaldrive.backup").frame(width: 24)
+                            Text("备份与恢复").foregroundStyle(STVTheme.text)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
+                        }.padding(14).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("profile.backup")
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
@@ -92,6 +105,60 @@ struct ProfileView: View {
         }
         .background(STVTheme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showBackup) { backupPanel }
+        .fileExporter(isPresented: $showExport,
+                      document: exportDoc,
+                      contentType: .idjBackup,
+                      defaultFilename: BackupService.suggestedFilename()) { result in
+            if case .success = result { message = "备份已导出到「文件」App；请妥善保存。" }
+            else { message = "导出失败，请重试。" }
+        }
+        .fileImporter(isPresented: $showImport, allowedContentTypes: [.idjBackup, .json]) { result in
+            switch result {
+            case .success(let url):
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                if let data = try? Data(contentsOf: url) {
+                    let r = BackupService.restore(from: data)
+                    message = r.message
+                } else {
+                    message = "无法读取所选文件。"
+                }
+            case .failure:
+                message = "未选择文件或读取失败。"
+            }
+        }
+        .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("好", role: .cancel) { message = nil }
+        } message: {
+            Text(message ?? "")
+        }
+    }
+
+    private var backupPanel: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("把本机的收藏、观看记录、片源开关与排序、插件（含苹果CMS）、红果设备身份、小说书架等数据打包备份。换版本或重装后导入即可恢复。")
+                    .font(.subheadline).foregroundStyle(STVTheme.secondary)
+                Button {
+                    exportDoc = BackupDocument(data: BackupService.makeBackupData())
+                    showExport = true
+                } label: {
+                    Label("导出备份", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).controlSize(.large)
+                Button { showImport = true } label: {
+                    Label("导入恢复", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered).controlSize(.large)
+                Text("恢复会覆盖同名数据，建议先导出一份当前备份。代理地址与登录态不在备份范围；恢复后需重启 App 生效。")
+                    .font(.caption).foregroundStyle(STVTheme.secondary)
+                Spacer()
+            }
+            .padding(20)
+            .background(STVTheme.bg.ignoresSafeArea())
+            .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
+        }
+        .presentationDetents([.medium])
     }
 
     static var versionText: String {
