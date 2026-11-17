@@ -21,11 +21,20 @@ enum CoverCrypto {
 
     static func kind(for url: String) -> CoverKind {
         let l = url.lowercased()
-        if l.contains("pic.drleao.cn") || l.contains("drleao.") { return .aiAES }
+        // 黄果 AI 封面 CDN 会轮换域名：pic.drleao.cn -> pic.qnlycc.cn -> …。
+        // 这些都是同一套 AES-128-CBC 加密（AI key/iv），按 host 以 pic. 开头通用匹配，
+        // 避免域名轮换后再变灰图。要求 host 精确匹配，防止 /pic.jpg 这类路径误伤别的站。
+        let host = URL(string: url)?.host?.lowercased() ?? ""
+        if l.contains("drleao.") || ((host.hasPrefix("pic.") || host.contains(".pic.")) && urlHasCoverPath(url)) { return .aiAES }
         if l.contains("lkkwip.cn") || l.contains("/cf") && l.contains("/image/") { return .legacyXOR }
         // Relative legacy paths are absolutized before fetch; treat bare cf* as XOR.
         if url.hasPrefix("cf") || url.hasPrefix("hc") { return .legacyXOR }
         return .plain
+    }
+    /// 真正的封面 URL 在域名后带图片路径（/upload_…）；dns-prefetch/preconnect 的裸域名不算。
+    private static func urlHasCoverPath(_ url: String) -> Bool {
+        guard let u = URL(string: url), let host = u.host else { return false }
+        return !u.path.isEmpty && u.path != "/"
     }
 
     static func decrypt(_ data: Data, kind: CoverKind) throws -> Data {
