@@ -50,7 +50,7 @@ enum BackupService {
 
         let plist: Data
         if let d = try? PropertyListSerialization.data(fromPropertyList: kept as NSDictionary,
-                                                       options: [], format: .binary) {
+                                                       format: .binary, options: []) {
             plist = d
         } else {
             plist = Data()
