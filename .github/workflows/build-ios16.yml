@@ -8,6 +8,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: write
     # macos-15-intel: 4 vCPU / 14GB 内存。arm64 标准机只有 7GB，编译 TDLibKit（整包优化）会 OOM 被杀。
     runs-on: macos-15-intel
     steps:
@@ -46,3 +48,25 @@ jobs:
             dist/*.ipa
             dist/*.sh
           if-no-files-found: error
+
+      # runner 内网直接发布到 Release，避免从 Actions artifact 下载 38MB IPA（慢且易超时）。
+      # 使用仓库内置的 secrets.GITHUB_TOKEN，不含任何个人 PAT。
+      - name: Publish unsigned IPA to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VER=$(awk -F'"' '/MARKETING_VERSION/{print $2; exit}' project.yml)
+          BUILD=$(awk -F'"' '/CURRENT_PROJECT_VERSION/{print $2; exit}' project.yml)
+          TAG="v${VER}-${BUILD}"
+          ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
+          SRC=$(ls dist/*.ipa | head -n 1)
+          cp "$SRC" "dist/$ASSET"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build54 备份/黄果下载/播放器与详情修复"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "dist/$ASSET" --clobber
+            gh release edit "$TAG" --title "$TITLE"
+          else
+            gh release create "$TAG" "dist/$ASSET" --title "$TITLE" \
+              --notes "build54: 备份与恢复修复(导出保存/UTI/文件名) · 黄果下载直下TS+AES解密+remux · 播放器中心按钮防闪现/进度条单击互斥/滑动切集防护 · 详情页无头像演员占位"
+          fi
