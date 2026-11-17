@@ -171,7 +171,9 @@ struct DanmakuOverlay: View {
     @State private var raw: [HGDanmaku] = []
     @State private var placed: [DanmakuLayout.Placed] = []
     @State private var key = ""
-    private var settings: DanmakuSettings { .shared }
+    // 必须是 @ObservedObject：否则设置面板改 speed/size/area 时 overlay 不重绘，
+    // layoutKey 的 onChange 不触发，表现为「弹幕开着时这几个控件没反应，关掉再开才生效」。
+    @ObservedObject private var settings = DanmakuSettings.shared
 
     var body: some View {
         GeometryReader { geo in
@@ -198,7 +200,7 @@ struct DanmakuOverlay: View {
     static func laneHeight(_ s: DanmakuSettings) -> CGFloat { s.size.points * 1.55 }
 
     private func layoutKey(_ size: CGSize) -> String {
-        "\(vid)|\(raw.count)|\(Int(size.width))|\(rows)|\(settings.speed.rawValue)|\(settings.size.rawValue)|\(settings.merge)|\(settings.likesPriority)"
+        "\(vid)|\(raw.count)|\(Int(size.width))|\(rows)|\(settings.speed.rawValue)|\(settings.size.rawValue)|\(settings.merge)|\(settings.likesPriority)|\(settings.area.rawValue)|\(Int(laneTop))|\(settings.opacity)"
     }
 
     private func relayout(_ size: CGSize, _ k: String) {
