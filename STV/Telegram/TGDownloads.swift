@@ -19,7 +19,9 @@ struct TGDownload: Codable, Identifiable, Hashable {
     var fileName: String? = nil
     var error: String? = nil
     var createdAt = Date()
-    var progress: Double { expected > 0 ? min(1, Double(received) / Double(expected)) : (state == .done ? 1 : 0) }
+    /// 播放器「下载本集」等外部下载的进度（0...1）。为 nil 时走 received/expected。
+    var fraction: Double? = nil
+    var progress: Double { if let fraction { return min(1, max(0, fraction)) }; return expected > 0 ? min(1, Double(received) / Double(expected)) : (state == .done ? 1 : 0) }
     var localURL: URL? { fileName.map { TGDownloads.dir.appendingPathComponent($0) } }
 }
 
@@ -38,6 +40,10 @@ final class TGDownloads: NSObject, ObservableObject {
     @Published private(set) var items: [TGDownload] = []
     @Published private var tasks: [String: URLSessionDownloadTask] = [:]
     @Published private var resumeData: [String: Data] = [:]
+    /// 播放器「下载本集」走的是普通 async Task（不是 URLSessionDownloadTask），暂停/删除靠这里的取消闭包。
+    private var externalCancel: [String: () -> Void] = [:]
+    /// 外部下载暂停/失败后的重试闭包（由 coordinator 注册：重新下载该集）。
+    private var externalRetry: [String: () -> Void] = [:]
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 30
@@ -77,6 +83,12 @@ final class TGDownloads: NSObject, ObservableObject {
     }
 
     func pause(_ d: TGDownload) {
+        // 播放器「下载本集」这类外部下载：调用取消闭包并标记暂停。
+        if let cancel = externalCancel[d.id] {
+            cancel(); externalCancel[d.id] = nil
+            set(d.id) { $0.state = .paused; $0.fraction = nil }
+            return
+        }
         guard let t = tasks[d.id] else { set(d.id) { $0.state = .paused }; return }
         t.cancel(byProducingResumeData: { data in
             Task { @MainActor in
@@ -88,9 +100,20 @@ final class TGDownloads: NSObject, ObservableObject {
         })
     }
 
-    func resume(_ d: TGDownload) { set(d.id) { $0.state = .queued; $0.error = nil }; pump() }
+    func resume(_ d: TGDownload) {
+        // 外部下载暂停后不保留进度数据，重新从触发方下载。
+        if let retry = externalRetry[d.id] {
+            set(d.id) { $0.state = .running; $0.error = nil; $0.fraction = 0 }
+            retry()
+            return
+        }
+        set(d.id) { $0.state = .queued; $0.error = nil }; pump()
+    }
 
     func delete(_ d: TGDownload) {
+        externalCancel[d.id]?()
+        externalCancel[d.id] = nil
+        externalRetry[d.id] = nil
         tasks.removeValue(forKey: d.id)?.cancel()
         resumeData[d.id] = nil
         if let u = d.localURL { try? FileManager.default.removeItem(at: u) }
@@ -99,6 +122,53 @@ final class TGDownloads: NSObject, ObservableObject {
     }
 
     func item(_ id: String) -> TGDownload? { items.first { $0.id == id } }
+
+    // MARK: 播放器「下载本集」外部下载
+    // 这些下载由 VideoDownloadService 用普通 async Task 完成，不进 URLSessionDownloadTask 队列，
+    // 但同样登记进下载管理以显示进度、支持暂停/删除。
+
+    /// 下载开始时登记一条 running 记录（文件名先占位，完成后由 finishVideo 固化）。
+    @discardableResult
+    func beginVideo(id: String, title: String, channel: String, remote: String, thumb: String,
+                    fileName: String, duration: Int = 0) -> String {
+        var d = TGDownload(id: id, kind: .video, title: title, channel: channel, remote: remote, thumb: thumb,
+                           duration: duration, state: .running, received: 0, expected: 0, fileName: fileName)
+        d.isAdult = false
+        d.fraction = 0
+        items.removeAll { $0.id == id }
+        items.insert(d, at: 0)
+        save()
+        return id
+    }
+
+    /// 绑定该外部下载的取消闭包（coordinator 持有 Task，cancel 即中止）。
+    func bindCancel(_ id: String, _ cancel: @escaping () -> Void) { externalCancel[id] = cancel }
+    /// 绑定重试闭包：暂停/失败后点「继续」时重新下载该集。
+    func bindRetry(_ id: String, _ retry: @escaping () -> Void) { externalRetry[id] = retry }
+
+    /// 更新进度 0...1。
+    func updateVideo(_ id: String, fraction: Double) {
+        set(id) { $0.fraction = fraction; $0.state = .running }
+    }
+
+    /// 下载完成：固化状态与文件大小。
+    func finishVideo(_ id: String, fileName: String) {
+        let size = (try? Self.dir.appendingPathComponent(fileName).resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        set(id) { d in
+            d.state = .done; d.fileName = fileName; d.received = size; d.expected = size
+            d.error = nil; d.fraction = nil
+        }
+        externalCancel[id] = nil
+        externalRetry[id] = nil
+        save()
+    }
+
+    /// 下载失败：标记为 failed 并展示原因。保留 retry 以支持点「继续」重试。
+    func failVideo(_ id: String, error: String) {
+        set(id) { $0.state = .failed; $0.error = error; $0.fraction = nil }
+        externalCancel[id] = nil
+        save()
+    }
 
     /// Registers an already-downloaded video file (from the player's 下载本集) in 下载管理.
     /// The file must already live in `TGDownloads.dir` under `fileName`.
