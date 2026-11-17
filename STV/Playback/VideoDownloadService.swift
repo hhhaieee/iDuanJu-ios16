@@ -175,28 +175,97 @@ enum VideoDownloadService {
         try handle.close()
         if Task.isCancelled { throw DownloadError.cancelled }
 
-        // 5) 从本地明文 TS remux 成 MP4（passthrough：只换容器不重编码，快且保画质）。
+        // 5) 从本地明文 TS remux 成 MP4。
+        //    iOS 16 的 AVAssetExportSession 对「分片拼接 TS」的 passthrough 极不稳定（用户看到的
+        //    「导出失败：这项操作无法完成」就卡在这一步）。改用 AVAssetReader/Writer 逐 sample 直拷：
+        //    不解码、不重编码、不生成新时间戳，最快且保画质；Reader/Writer 也不行时再回退到
+        //    AVAssetExportSession 重编码导出，确保尽量产出可播放的 MP4。
         progress?(0.92)
         let asset = AVURLAsset(url: merged)
-        let preset = AVAssetExportSession.allExportPresets().contains(AVAssetExportPresetPassthrough)
-            ? AVAssetExportPresetPassthrough : AVAssetExportPresetHighestQuality
-        guard let exporter = AVAssetExportSession(asset: asset, presetName: preset) else {
-            throw DownloadError.exportFailed("无法创建导出器")
-        }
-        exporter.outputURL = dest
-        exporter.outputFileType = .mp4
-        exporter.shouldOptimizeForNetworkUse = false
         do {
-            try await exporter.export()
-        } catch is CancellationError {
-            throw DownloadError.cancelled
+            try await remuxByReaderWriter(asset, to: dest)
         } catch {
-            throw DownloadError.exportFailed(error.localizedDescription)
+            var last: Error = error
+            for preset in [AVAssetExportPresetHighestQuality, AVAssetExportPresetPassthrough] {
+                if Task.isCancelled { throw DownloadError.cancelled }
+                try? FileManager.default.removeItem(at: dest)
+                guard let ex = AVAssetExportSession(asset: asset, presetName: preset) else { continue }
+                ex.outputURL = dest
+                ex.outputFileType = .mp4
+                ex.shouldOptimizeForNetworkUse = false
+                do { try await ex.export() }
+                catch is CancellationError { throw DownloadError.cancelled }
+                catch { last = error; continue }
+                if ex.status == .completed { progress?(1); return }
+                last = ex.error ?? last
+            }
+            throw DownloadError.exportFailed(last.localizedDescription)
         }
-        guard exporter.status == .completed else {
-            throw DownloadError.exportFailed(exporter.error?.localizedDescription ?? "导出未完成")
-        }
+        guard FileManager.default.fileExists(atPath: dest.path) else { throw DownloadError.emptyData }
         progress?(1)
+    }
+
+    /// 逐 sample 直拷 remux（不解码、不重编码），把明文 TS 的音视频轨原样写进 MP4。
+    /// 绕开 AVAssetExportSession 在 iOS 16 上对拼接 TS 的 passthrough 兼容问题。
+    private static func remuxByReaderWriter(_ asset: AVAsset, to dest: URL) async throws {
+        let reader = try AVAssetReader(asset: asset)
+        let writer = try AVAssetWriter(outputURL: dest, fileType: .mp4)
+        var outputs: [AVAssetReaderTrackOutput] = []
+        var inputs: [AVAssetWriterInput] = []
+        for track in asset.tracks {
+            let out = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+            out.alwaysCopiesSampleData = false
+            let input = AVAssetWriterInput(mediaType: track.mediaType, outputSettings: nil)
+            input.expectsMediaDataInRealTime = false
+            guard reader.canAdd(out), writer.canAdd(input) else { continue }
+            reader.add(out)
+            writer.add(input)
+            outputs.append(out)
+            inputs.append(input)
+        }
+        guard !inputs.isEmpty else { throw DownloadError.exportFailed("无可用音视频轨道") }
+        guard reader.startReading(), writer.startWriting() else {
+            throw DownloadError.exportFailed("无法启动导出")
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let group = DispatchGroup()
+            let lock = NSLock()
+            var failure: Error?
+            for (i, input) in inputs.enumerated() {
+                group.enter()
+                let output = outputs[i]
+                input.requestMediaDataWhenReady(on: DispatchQueue(label: "stv.remux.\(i)")) {
+                    while input.isReadyForMoreMediaData {
+                        guard let buf = output.copyNextSampleBuffer() else {
+                            input.markAsFinished()
+                            group.leave()
+                            return
+                        }
+                        if !input.append(buf) {
+                            lock.lock()
+                            failure = writer.error ?? DownloadError.exportFailed("写入媒体数据失败")
+                            lock.unlock()
+                            input.markAsFinished()
+                            group.leave()
+                            return
+                        }
+                    }
+                }
+            }
+            group.notify(queue: .main) {
+                if let e = failure {
+                    writer.cancelWriting()
+                    cont.resume(throwing: e)
+                    return
+                }
+                writer.finishWriting { cont.resume() }
+            }
+        }
+        guard writer.status == .completed else {
+            throw DownloadError.exportFailed(writer.error?.localizedDescription ?? "导出未完成")
+        }
     }
 
     /// 下载字节（带 headers + UA），取消归一为 DownloadError.cancelled。
