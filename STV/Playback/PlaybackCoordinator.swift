@@ -49,6 +49,9 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     static let rateSteps: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
 
     let series: HGSeries
+    /// 下载本集的状态反馈（字幕面板触发）。
+    @Published private(set) var downloadMessage: String? = nil
+    @Published private(set) var isDownloading = false
     @Published var detail: HGSeriesDetail? = nil
     @Published private(set) var current: Int? = nil
     @Published private(set) var readyIndex: Int? = nil
@@ -924,6 +927,47 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     /// Track ids are `MediaTrack.id`; nil subtitle = off.
     func selectAudio(_ id: Int) { engine.selectAudio(id); audioSelected = id }
     func selectSubtitle(_ id: Int?) { engine.selectSubtitle(id); subtitleSelected = id }
+
+    // MARK: 下载本集
+
+    /// 下载当前正在播放的这一集，完成后登记进「下载管理」。可从相册或下载管理里查看。
+    func downloadCurrentEpisode() {
+        guard !isDownloading else { return }
+        guard let i = current ?? readyIndex, episodes.indices.contains(i) else {
+            downloadMessage = "还没有可下载的视频"
+            return
+        }
+        let ep = episodes[i]
+        let dlSeries = series
+        let title = series.title
+        let channel = series.source.label
+        let thumb = series.cover
+        let remoteHint = chosen[i]?.url ?? ""
+        isDownloading = true
+        downloadMessage = "正在下载第 \(ep.ep) 集…"
+        Task { [weak self] in
+            do {
+                let url = try await VideoDownloadService.download(series: dlSeries, episode: ep)
+                let name = url.lastPathComponent
+                let id = "video-\(series.id)-\(ep.id)"
+                    .replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: ":", with: "_")
+                    .replacingOccurrences(of: " ", with: "_")
+                await MainActor.run {
+                    TGDownloads.shared.registerVideo(id: id, title: "\(title) · 第\(ep.ep)集",
+                                                     channel: channel, remote: remoteHint, thumb: thumb,
+                                                     fileName: name, duration: ep.duration)
+                    self?.isDownloading = false
+                    self?.downloadMessage = "第 \(ep.ep) 集已下载，可在「下载管理」查看或存到相册"
+                }
+            } catch {
+                await MainActor.run {
+                    self?.isDownloading = false
+                    self?.downloadMessage = "下载失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
 
     func seek(fraction: Double) {
         guard duration > 0 else { return }
