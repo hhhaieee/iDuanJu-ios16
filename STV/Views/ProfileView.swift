@@ -50,14 +50,13 @@ struct ProfileView: View {
                 .padding(.horizontal, 16)
                 VStack(alignment: .leading, spacing: 0) {
                     link("数据源诊断", "stethoscope", .diagnostics)
-                    Divider().padding(.leading, 52)
                     Button { showBackup = true } label: {
                         HStack {
                             Image(systemName: "archivebox").frame(width: 24)
                             Text("备份与恢复").foregroundStyle(STVTheme.text)
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
-                        }.padding(14).contentShape(Rectangle())
+                        }.padding(14)
                     }.buttonStyle(.plain).accessibilityIdentifier("profile.backup")
                     Divider().padding(.leading, 52)
                     HStack {
