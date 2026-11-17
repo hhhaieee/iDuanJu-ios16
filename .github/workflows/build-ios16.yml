@@ -62,11 +62,11 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build54 备份/黄果下载/播放器与详情修复"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build55 弹幕开关/导出保存/下载与角标修复"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
-            gh release edit "$TAG" --title "$TITLE"
+            gh release edit "$TAG" --title "$TITLE" --notes "build55: 弹幕所有开关恢复响应(@Published) · 备份行去白线 · 导出改存储/外部点开备份可恢复 · 黄果下载 remux 修复 · 下载管理角标实时联动"
           else
             gh release create "$TAG" "dist/$ASSET" --title "$TITLE" \
-              --notes "build54: 备份与恢复修复(导出保存/UTI/文件名) · 黄果下载直下TS+AES解密+remux · 播放器中心按钮防闪现/进度条单击互斥/滑动切集防护 · 详情页无头像演员占位"
+              --notes "build55: 弹幕所有开关恢复响应(@Published) · 备份行去白线 · 导出改存储/外部点开备份可恢复 · 黄果下载 remux 修复 · 下载管理角标实时联动"
           fi
