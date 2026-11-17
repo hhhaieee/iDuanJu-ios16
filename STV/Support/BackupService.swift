@@ -85,7 +85,7 @@ enum BackupService {
 
     static func suggestedFilename() -> String {
         let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmm"
-        return "备份-\(df.string(from: Date())).\(fileExtension)"
+        return "黑果备份-\(df.string(from: Date())).\(fileExtension)"
     }
 
     // MARK: - Restore
@@ -130,7 +130,7 @@ enum BackupService {
 
 /// 备份文件的 UTType（用于 .fileExporter / .fileImporter）。
 extension UTType {
-    static let idjBackup = UTType(importedAs: "com.local.STV.backup", conformingTo: .json)
+    static let idjBackup = UTType(exportedAs: "com.local.STV.backup", conformingTo: .data)
 }
 
 /// SwiftUI 文件导出用的可导出文档。
