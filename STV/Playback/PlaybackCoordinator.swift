@@ -960,7 +960,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         downloadMessage = "正在下载第 \(ep.ep) 集…（可在下载管理查看进度）"
 
         var downloadTask: Task<Void, Never>?
-        let retry = { [weak self] in
+        let retry: () -> Void = { [weak self] in
             self?.performVideoDownload(series: dlSeries, episode: ep, id: id,
                                        title: title, channel: channel, thumb: thumb, remote: remote)
         }
