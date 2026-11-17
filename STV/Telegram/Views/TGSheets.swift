@@ -337,7 +337,8 @@ struct DownloadsView: View {
         List {
             if let message { Text(message).font(.caption).foregroundStyle(STVTheme.accent) }
             if dl.visible.isEmpty {
-                Text("还没有下载。在频道消息上点 ⬇︎ 或长按 → 下载。").foregroundStyle(.secondary)
+                Text("还没有下载。可在频道消息上点 ⬇︎ 或长按 → 下载，也可在播放器字幕面板点「下载本集」。")
+                    .foregroundStyle(.secondary)
             }
             ForEach(dl.visible) { d in row(d) }
                 .onDelete { idx in idx.map { dl.visible[$0] }.forEach(dl.delete) }
@@ -379,7 +380,13 @@ struct DownloadsView: View {
     private func stateText(_ d: TGDownload) -> String {
         let got = ByteCountFormatter.string(fromByteCount: d.received, countStyle: .file)
         let tot = d.expected > 0 ? " / " + ByteCountFormatter.string(fromByteCount: d.expected, countStyle: .file) : ""
-        switch d.state { case .queued: return "排队中"; case .paused: return "已暂停 · \(got)\(tot)"; default: return "\(got)\(tot) · \(Int(d.progress * 100))%" }
+        switch d.state {
+        case .running: return "下载中 · \(Int(d.progress * 100))%" + (d.expected > 0 ? " · \(got)\(tot)" : "")
+        case .queued: return "排队中"
+        case .paused: return "已暂停 · \(Int(d.progress * 100))%"
+        case .failed: return d.error ?? "失败"
+        case .done: return got
+        }
     }
 
     @ViewBuilder private func actions(_ d: TGDownload) -> some View {
