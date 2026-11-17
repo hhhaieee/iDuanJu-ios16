@@ -148,3 +148,56 @@ struct BackupDocument: FileDocument {
         FileWrapper(regularFileWithContents: data)
     }
 }
+
+/// 用 UIKit 的 UIDocumentPicker 导出：asCopy=true 时右上角显示「存储/保存」而非 SwiftUI
+/// fileExporter 固定显示的「移动」（后者是系统文案，无法通过 UTI 配置改变）。
+struct UIKitDocumentExporter: UIViewControllerRepresentable {
+    let url: URL
+    var asCopy: Bool = true
+    let onFinish: (Result<URL, Error>) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let vc = UIDocumentPickerViewController(forExporting: [url], asCopy: asCopy)
+        vc.delegate = context.coordinator
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onFinish: (Result<URL, Error>) -> Void
+        init(onFinish: @escaping (Result<URL, Error>) -> Void) { self.onFinish = onFinish }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onFinish(.success(urls.first ?? URL(fileURLWithPath: NSTemporaryDirectory())))
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onFinish(.failure(CancellationError()))
+        }
+    }
+}
+
+/// App 入口用：外部「文件」App 点开 .idjbackup 时接收 URL → 恢复 → 弹结果提示。
+struct BackupOpenURLHandler: ViewModifier {
+    @State private var message: String?
+    func body(content: Content) -> some View {
+        content
+            .onOpenURL { url in
+                let ext = url.pathExtension.lowercased()
+                guard ext == BackupService.fileExtension || ext == "json" else { return }
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url) else {
+                    message = "无法读取该备份文件。"
+                    return
+                }
+                message = BackupService.restore(from: data).message
+            }
+            .alert("恢复结果", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+                Button("好", role: .cancel) { message = nil }
+            } message: {
+                Text(message ?? "")
+            }
+    }
+}
