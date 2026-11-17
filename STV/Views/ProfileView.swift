@@ -155,9 +155,16 @@ struct ProfileView: View {
                     }
                 }
             }
-            .fileImporter(isPresented: $showImport, allowedContentTypes: [.idjBackup, .json]) { result in
+            // 放宽到通用类型：自定义 UTI 作过滤条件时 iOS 16 文件选择器会把 .idjbackup 置灰（选不了）。
+            // 让所有文件可选，再在回调里按扩展名校验，和 onOpenURL 的处理保持一致。
+            .fileImporter(isPresented: $showImport, allowedContentTypes: [.data, .json]) { result in
                 switch result {
                 case .success(let url):
+                    let ext = url.pathExtension.lowercased()
+                    guard ext == BackupService.fileExtension || ext == "json" else {
+                        message = "请选择黑果备份文件（.idjbackup）。"
+                        return
+                    }
                     let accessed = url.startAccessingSecurityScopedResource()
                     defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                     if let data = try? Data(contentsOf: url) {
