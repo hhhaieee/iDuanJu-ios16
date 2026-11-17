@@ -70,6 +70,8 @@ struct PlayerScreen: View {
     @State private var feedAnchoring = false
     /// Running double-tap seek (+10/+20/… s) and which side it is on; drives the side bubble.
     @State private var seekRun: (total: Int, at: Date)?
+    /// 屏幕左右滑动调进度：t0 = 起始时间, cur = 当前预览时间, active 控制气泡显示。
+    @State private var seekSlide: (t0: Double, cur: Double, active: Bool)? = nil
     @Environment(\.verticalSizeClass) private var vClass
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var library = LibraryStore.shared
@@ -162,13 +164,7 @@ struct PlayerScreen: View {
                             title: co.detail?.title ?? series.title,
                             backdrop: co.pipBackdrop,
                             cover: series.cover,
-                            onResume: {
-                                // 画中画里点了暂停再切回全屏：先解锁、恢复播放，再退出画中画。
-                                locked = false
-                                if co.paused { co.togglePause() }
-                                co.togglePiP()
-                                flashChrome()
-                            },
+                            onResume: { co.togglePiP() },
                             onExit: { co.exitPlayback(); dismiss() }
                         )
                         .frame(width: full.width, height: full.height)
@@ -194,6 +190,33 @@ struct PlayerScreen: View {
                             .position(x: run.total > 0 ? full.width * 0.75 : full.width * 0.25, y: landscape ? full.height / 2 - 70 : rect.midY - 70)
                             .transition(.opacity).allowsHitTesting(false)
                             .accessibilityIdentifier("player.seekRun")
+                    }
+                    // 屏幕左右滑动调进度的中间提示：方向+秒数 / 当前·总时长 / 进度条（仿播放器 seek 气泡）。
+                    if let s = seekSlide, s.active, co.duration > 0 {
+                        let delta = s.cur - s.t0
+                        VStack(spacing: 8) {
+                            HStack(spacing: 6) {
+                                Image(systemName: delta >= 0 ? "forward.fill" : "backward.fill")
+                                Text("\(delta >= 0 ? "+" : "−")\(Int(abs(delta).rounded()))s")
+                            }
+                            .font(.system(size: 15, weight: .bold).monospacedDigit())
+                            Text("\(Fmt.clock(Int(s.cur))) / \(Fmt.clock(Int(co.duration)))")
+                                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.85))
+                            GeometryReader { g in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(.white.opacity(0.22))
+                                    Capsule().fill(STVTheme.accent)
+                                        .frame(width: g.size.width * CGFloat(min(1, max(0, s.cur / co.duration))))
+                                }
+                            }.frame(height: 3).frame(width: 150)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 20).padding(.vertical, 14)
+                        .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .position(x: full.width / 2, y: landscape ? full.height / 2 - 84 : rect.midY - 84)
+                        .transition(.opacity).allowsHitTesting(false)
+                        .accessibilityIdentifier("player.seekSlide")
                     }
                     if let osd {
                         Text(osd).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
@@ -295,6 +318,11 @@ struct PlayerScreen: View {
             // 横竖屏切换后强制恢复控制栏并清除中心按钮抑制：否则切屏瞬间 centerSuppressed
             // 可能残留为 true、showChrome 为 false，表现为「切到竖屏后点屏幕唤不醒控制栏」。
             flashChrome()
+        }
+        .onChange(of: co.pipActive) { active in
+            // 退出画中画回到全屏（含系统原生 PiP 返回）时自动解开锁屏；
+            // 不再强制恢复播放——暂停状态保留为用户在画中画里的选择（第2项回退）。
+            if !active { locked = false; flashChrome() }
         }
         .onChange(of: co.downloadMessage) { msg in if let msg { showOSD(msg) } }
         .onChange(of: locked) { isLocked in
@@ -534,6 +562,9 @@ struct PlayerScreen: View {
                     },
                     onVerticalSwipe: handleVerticalSwipe,
                     onSwipeToPage: handleSwipeToPage,
+                    onSeekSlideBegan: seekSlideBegan,
+                    onSeekSlideChanged: seekSlideChanged,
+                    onSeekSlideEnded: seekSlideEnded,
                     pagingEnabled: co.readyIndex == co.current
                 )
             } else {
@@ -1016,6 +1047,34 @@ struct PlayerScreen: View {
         else { co.togglePause(); flashChrome() }
     }
 
+    // MARK: 屏幕左右滑动调进度（水平 pan，中间区域）
+
+    /// dx 为水平位移占屏宽比例。手感：滑满半屏 ≈ 前进/后退 60 秒（可随视频时长自适应）。
+    private func seekSlideBegan() {
+        guard co.duration > 0, !locked, panel == nil, !speedMode else { return }
+        let t0 = co.time
+        withAnimation(.easeOut(duration: 0.12)) { seekSlide = (t0, t0, true) }
+        scrubbing = true
+    }
+
+    private func seekSlideChanged(_ dxFraction: Double) {
+        guard var s = seekSlide, s.active, co.duration > 0 else { return }
+        // 半屏 = min(duration, 90s) 的进度跨度；超出时长自动夹紧，短片也能滑完。
+        let window = min(co.duration, 90)
+        let target = min(max(0, s.t0 + dxFraction * 2 * window), co.duration)
+        s.cur = target
+        seekSlide = s
+        co.scrubPreview = target
+    }
+
+    private func seekSlideEnded() {
+        guard let s = seekSlide, s.active else { return }
+        if co.duration > 0 { co.seek(fraction: s.cur / co.duration) }
+        co.scrubPreview = nil
+        withAnimation(.easeIn(duration: 0.2)) { seekSlide = nil }
+        scrubbing = false
+    }
+
     private func showOSD(_ text: String) {
         withAnimation(.easeOut(duration: 0.15)) { osd = text }
         flashChrome()
@@ -1331,6 +1390,10 @@ struct PlayerTouchCatcher: UIViewRepresentable {
     var onVerticalSwipe: (Bool) -> Void = { _ in }
     /// 竖屏手势接管分页：落到哪一集（绝对页码）。
     var onSwipeToPage: (Int) -> Void = { _ in }
+    /// 屏幕左右滑动调进度（水平 pan，中间区域）。dx 为位移/屏宽比例。
+    var onSeekSlideBegan: () -> Void = {}
+    var onSeekSlideChanged: (Double) -> Void = { _ in }
+    var onSeekSlideEnded: () -> Void = {}
     /// 当前集已就绪时才允许上下滑换集（加载中锁死，避免拖动拉出封面）。
     var pagingEnabled: Bool = true
 
@@ -1360,6 +1423,9 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         c.onPinchFill = onPinchFill
         c.onVerticalSwipe = onVerticalSwipe
         c.onSwipeToPage = onSwipeToPage
+        c.onSeekSlideBegan = onSeekSlideBegan
+        c.onSeekSlideChanged = onSeekSlideChanged
+        c.onSeekSlideEnded = onSeekSlideEnded
         c.pagingEnabled = pagingEnabled
         c.pinch.isEnabled = !locked && !speedMode
         // While speed HUD is up, keep catcher receiving the finger; chrome is hit-disabled.
@@ -1369,6 +1435,7 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         /// 全屏（横屏）垂直轻扫 = 上下集；竖屏由手势接管分页（跟手 + 到位翻页）。
         /// 当前集未就绪（加载中）时锁死，避免拖动拉出封面。
         c.epPan.isEnabled = !locked && !speedMode && pagingEnabled
+        c.seekPan.isEnabled = !locked && !speedMode
         c.doubleTapEnabled = !speedMode && !locked
         c.tap.isEnabled = !speedMode
     }
@@ -1388,6 +1455,10 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         var onVerticalSwipe: (Bool) -> Void = { _ in }
         /// 竖屏手势接管分页：落到哪一集（绝对页码）。
         var onSwipeToPage: (Int) -> Void = { _ in }
+        /// 屏幕左右滑动调进度（水平 pan，中间区域）。
+        var onSeekSlideBegan: () -> Void = {}
+        var onSeekSlideChanged: (Double) -> Void = { _ in }
+        var onSeekSlideEnded: () -> Void = {}
         /// 当前集是否已就绪（就绪才允许上下滑换集）。
         var pagingEnabled = true
         private weak var feedScroll: UIScrollView?
@@ -1396,6 +1467,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         let pinch = UIPinchGestureRecognizer()
         /// 全屏（横屏）垂直轻扫 → 上一集 / 下一集。
         let epPan = UIPanGestureRecognizer()
+        /// 屏幕左右滑动调进度（水平，中间区域，与垂直的切集/亮度音量手势互斥）。
+        let seekPan = UIPanGestureRecognizer()
         let tap = UITapGestureRecognizer()
         /// Double taps are recognised from single-tap timing (no UITapGestureRecognizer(2)), so a single tap
         /// acts at once instead of waiting ~0.3 s for a second tap that may never come.
@@ -1430,10 +1503,15 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             epPan.delegate = self
             epPan.maximumNumberOfTouches = 1
             epPan.cancelsTouchesInView = false
+            seekPan.addTarget(self, action: #selector(handleSeekSlide))
+            seekPan.delegate = self
+            seekPan.maximumNumberOfTouches = 1
+            seekPan.cancelsTouchesInView = false
             view.addGestureRecognizer(tap)
             view.addGestureRecognizer(longPress)
             view.addGestureRecognizer(adjustPan)
             view.addGestureRecognizer(epPan)
+            view.addGestureRecognizer(seekPan)
             pinch.addTarget(self, action: #selector(handlePinch))
             pinch.delegate = self
             pinch.cancelsTouchesInView = false
@@ -1510,6 +1588,20 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             case .ended, .cancelled, .failed:
                 if adjustSide != nil { onAdjustEnded() }
                 adjustSide = nil
+            default: break
+            }
+        }
+
+        /// 屏幕左右滑动调进度（水平 pan）。dx 为位移占屏宽比例。
+        @objc private func handleSeekSlide(_ g: UIPanGestureRecognizer) {
+            guard let view else { return }
+            switch g.state {
+            case .began:
+                onSeekSlideBegan()
+            case .changed:
+                onSeekSlideChanged(Double(g.translation(in: view).x / max(1, view.bounds.width)))
+            case .ended, .cancelled, .failed:
+                onSeekSlideEnded()
             default: break
             }
         }
@@ -1593,9 +1685,10 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            // The adjust pan owns its touch exclusively (no paging/speed at the same time);
+            // adjust pan / seek pan own their touch exclusively (no paging/speed at the same time);
             // tap + long-press always coexist with UIScrollView pan + interactive pop.
-            if gestureRecognizer === adjustPan || otherGestureRecognizer === adjustPan { return false }
+            if gestureRecognizer === adjustPan || otherGestureRecognizer === adjustPan ||
+               gestureRecognizer === seekPan || otherGestureRecognizer === seekPan { return false }
             return true
         }
 
@@ -1618,6 +1711,19 @@ struct PlayerTouchCatcher: UIViewRepresentable {
                 guard !speedMode, Coordinator.side(pan, in: view, landscape: landscape) != nil else { return false }
                 let v = pan.velocity(in: view)
                 return abs(v.y) > abs(v.x) * 1.2
+            }
+            if gestureRecognizer === epPan {
+                // 切集只在中间区域生效：两侧边缘让给亮度/音量，避免竖屏切集与侧滑抢手势。
+                guard !speedMode, Coordinator.side(gestureRecognizer, in: view, landscape: landscape) == nil else { return false }
+                // 垂直为主才切集，水平交给 seekPan。
+                let v = gestureRecognizer.velocity(in: view)
+                return abs(v.y) >= abs(v.x)
+            }
+            if gestureRecognizer === seekPan, let pan = gestureRecognizer as? UIPanGestureRecognizer {
+                // 进度手势只在中间区域、水平为主时接管；锁屏 / 倍速模式下禁用。
+                guard !speedMode, !locked, Coordinator.side(pan, in: view, landscape: landscape) == nil else { return false }
+                let v = pan.velocity(in: view)
+                return abs(v.x) > abs(v.y) * 1.2
             }
             return true
         }
