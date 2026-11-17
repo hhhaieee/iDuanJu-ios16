@@ -162,7 +162,13 @@ struct PlayerScreen: View {
                             title: co.detail?.title ?? series.title,
                             backdrop: co.pipBackdrop,
                             cover: series.cover,
-                            onResume: { co.togglePiP() },
+                            onResume: {
+                                // 画中画里点了暂停再切回全屏：先解锁、恢复播放，再退出画中画。
+                                locked = false
+                                if co.paused { co.togglePause() }
+                                co.togglePiP()
+                                flashChrome()
+                            },
                             onExit: { co.exitPlayback(); dismiss() }
                         )
                         .frame(width: full.width, height: full.height)
@@ -282,7 +288,14 @@ struct PlayerScreen: View {
                 flashChrome()
             }
         }
-        .onChange(of: landscape) { l in if !l { locked = false }; panel = nil }
+        .onChange(of: landscape) { l in
+            if !l { locked = false }
+            panel = nil
+            scrubbing = false
+            // 横竖屏切换后强制恢复控制栏并清除中心按钮抑制：否则切屏瞬间 centerSuppressed
+            // 可能残留为 true、showChrome 为 false，表现为「切到竖屏后点屏幕唤不醒控制栏」。
+            flashChrome()
+        }
         .onChange(of: co.downloadMessage) { msg in if let msg { showOSD(msg) } }
         .onChange(of: locked) { isLocked in
             if isLocked { OrientationGate.lockCurrent(landscape: landscape) }
@@ -302,9 +315,9 @@ struct PlayerScreen: View {
             LinearGradient(colors: [.black.opacity(0.62), .clear], startPoint: .top, endPoint: .bottom)
                 .frame(height: landscape ? 120 : 150)
             Spacer(minLength: 0)
-            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(0.55), location: 0.5),
-                                   .init(color: .black.opacity(0.86), location: 1)], startPoint: .top, endPoint: .bottom)
-                .frame(height: landscape ? 200 : 300)
+            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(0.65), location: 0.5),
+                                   .init(color: .black.opacity(0.94), location: 1)], startPoint: .top, endPoint: .bottom)
+                .frame(height: landscape ? 220 : 320)
         }
         .frame(width: full.width, height: full.height)
         .allowsHitTesting(false)
@@ -350,7 +363,6 @@ struct PlayerScreen: View {
             .compatSelectionFeedback(trigger: co.current)
             .onChange(of: co.readyIndex) { _ in releaseHeldIfSettled() }
             .onChange(of: co.current) { new in
-                if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
                 lastShownCurrent = new
             }
             .scrollDisabled(locked || speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
@@ -445,9 +457,10 @@ struct PlayerScreen: View {
                         // 画面层立即对齐到目标页，避免 scrollTo 未落地时视频层整屏偏出（黑屏/错位）。
                         feedScrollY = CGFloat(target) * geo.size.height
                         proxy.scrollTo(target, anchor: .top)
-                        // 兜底：极端情况下 scrollTo 迟迟不落地，2 秒后强制结束 anchoring 并补一次滚动，
-                        // 避免一直锁死导致用户无法上下滑换集。用最新 co.current（可能已随 load 变化）。
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        // 兜底：极端情况下 scrollTo 迟迟不落地，0.6 秒后强制结束 anchoring 并补一次滚动，
+                        // 避免一直锁死导致用户无法上下滑换集（横屏切竖屏后切集失效的主因）。
+                        // 用最新 co.current（可能已随 load 变化）。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                             guard feedAnchoring else { return }
                             feedAnchoring = false
                             feedInitialized = true
@@ -458,7 +471,6 @@ struct PlayerScreen: View {
                     }
                     .onChange(of: co.current) { new in
                         if let new { withAnimation { proxy.scrollTo(new, anchor: .top) } }
-                        if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
                         lastShownCurrent = new
                         releaseHeldIfSettled()
                         // 兜底：换集后把画面层对齐到目标页。iOS 16 上 scrollTo 可能不生效，
@@ -1021,7 +1033,6 @@ struct PlayerScreen: View {
         if idx != co.current {
             co.select(idx)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if lastShownCurrent != nil { showOSD("第\(co.episodes[idx].ep)集") }
             lastShownCurrent = idx
         }
     }
@@ -1037,7 +1048,6 @@ struct PlayerScreen: View {
         }
         co.select(target)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        showOSD("第\(co.episodes[target].ep)集")
     }
 
     // MARK: Speed gesture
