@@ -1417,6 +1417,7 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         c.onSpeedEnded = onSpeedEnded
         c.landscape = landscape
         c.speedMode = speedMode
+        c.locked = locked
         c.onAdjustBegan = onAdjustBegan
         c.onAdjustChanged = onAdjustChanged
         c.onAdjustEnded = onAdjustEnded
@@ -1448,6 +1449,7 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         var onSpeedEnded: () -> Void = {}
         var landscape = false
         var speedMode = false
+        var locked = false
         var onAdjustBegan: (AdjustSide) -> Void = { _ in }
         var onAdjustChanged: (AdjustSide, Double) -> Void = { _, _ in }
         var onAdjustEnded: () -> Void = {}
@@ -1712,11 +1714,11 @@ struct PlayerTouchCatcher: UIViewRepresentable {
                 let v = pan.velocity(in: view)
                 return abs(v.y) > abs(v.x) * 1.2
             }
-            if gestureRecognizer === epPan {
+            if gestureRecognizer === epPan, let pan = gestureRecognizer as? UIPanGestureRecognizer {
                 // 切集只在中间区域生效：两侧边缘让给亮度/音量，避免竖屏切集与侧滑抢手势。
-                guard !speedMode, Coordinator.side(gestureRecognizer, in: view, landscape: landscape) == nil else { return false }
+                guard !speedMode, Coordinator.side(pan, in: view, landscape: landscape) == nil else { return false }
                 // 垂直为主才切集，水平交给 seekPan。
-                let v = gestureRecognizer.velocity(in: view)
+                let v = pan.velocity(in: view)
                 return abs(v.y) >= abs(v.x)
             }
             if gestureRecognizer === seekPan, let pan = gestureRecognizer as? UIPanGestureRecognizer {
