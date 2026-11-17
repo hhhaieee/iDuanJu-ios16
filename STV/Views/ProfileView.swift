@@ -155,9 +155,10 @@ struct ProfileView: View {
                     }
                 }
             }
-            // 放宽到通用类型：自定义 UTI 作过滤条件时 iOS 16 文件选择器会把 .idjbackup 置灰（选不了）。
+            // 放宽到 public.item（文件系统顶层类型，任何文件都符合）：TrollStore 侧载时自定义 UTI
+            // 无法注册进系统 LaunchServices，[.data,.json] 会让 .idjbackup 置灰选不了。
             // 让所有文件可选，再在回调里按扩展名校验，和 onOpenURL 的处理保持一致。
-            .fileImporter(isPresented: $showImport, allowedContentTypes: [.data, .json]) { result in
+            .fileImporter(isPresented: $showImport, allowedContentTypes: [.item]) { result in
                 switch result {
                 case .success(let url):
                     let ext = url.pathExtension.lowercased()
