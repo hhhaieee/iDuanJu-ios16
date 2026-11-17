@@ -49,8 +49,9 @@ enum BackupService {
         for (k, v) in prefs where !shouldSkip(k) { kept[k] = v }
 
         let plist: Data
+        let writeOpts = PropertyListSerialization.WriteOptions()
         if let d = try? PropertyListSerialization.data(fromPropertyList: kept as NSDictionary,
-                                                       format: .binary) {
+                                                       format: .binary, options: writeOpts) {
             plist = d
         } else {
             plist = Data()
