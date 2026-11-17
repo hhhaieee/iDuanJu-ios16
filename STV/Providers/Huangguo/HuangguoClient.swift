@@ -503,10 +503,18 @@ actor HuangguoClient {
             let id = m[2]
             if covers[id] != nil { continue }
             if let range = html.range(of: m[0]) {
-                let window = String(html[range.lowerBound...].prefix(1200))
-                if let c = HTML.groups("https://pic\\.[a-z0-9.-]+[^\"\\s<>]+", window) {
-                    covers[id] = c[0]
+                let window = String(html[range.lowerBound...].prefix(1600))
+                // 优先取卡片 <img data-src="https://pic.*/upload_…">；页面头部的
+                // <link rel=dns-prefetch href="https://pic.qnlycc.cn"> 是裸域名（无路径），
+                // 旧的通用正则会先命中它，导致所有榜单封面变成无效裸域名 -> 灰图。
+                var found: String? = nil
+                for c in HTML.all("data-src=[\"'](https://pic\\.[a-z0-9.-]+/[^\"']+)[\"']", window) {
+                    if c[1].count > 40 { found = c[1]; break }
                 }
+                if found == nil, let c = HTML.groups("https://pic\\.[a-z0-9.-]+/[^\"'\\s<>/][^\"'\\s<>]*", window) {
+                    found = c[0]
+                }
+                if let u = found { covers[id] = HTML.unescape(u.replacingOccurrences(of: "\\/", with: "/")) }
             }
         }
         for b in HTML.all("<script[^>]*ld\\+json[^>]*>(.*?)</script>", html) {
