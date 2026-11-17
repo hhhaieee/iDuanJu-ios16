@@ -566,8 +566,32 @@ actor HongguoClient {
 
     // MARK: resolve (resolve.go batch via postPlayerBatch → video_model.go single dialect)
 
+    /// 主路径：用内嵌 hongguo.js（hongguo_app.js）直接取流。引擎返回的 URL 已在 JS 内解密并 HEAD 探活，
+    /// 无需再走 Swift 的 materialize 解密。
+    private func resolveViaEngine(_ vid: String) async throws -> HGResolvedVideo? {
+        let streams = try await HGEngine.playUrl(vid: vid)
+        guard !streams.isEmpty else { return nil }
+        var out: [HGStream] = []
+        var topKey: String?
+        var topExpires: Int?
+        for (i, s) in streams.enumerated() {
+            let key = s.contentKey
+            out.append(HGStream(streamId: "engine-\(i)", quality: s.quality.isEmpty ? nil : s.quality,
+                                url: s.url, key: key, headers: s.header))
+            if i == 0 { topKey = key.isEmpty ? nil : key; topExpires = Int(s.expiresAt) }
+        }
+        let r = HGResolvedVideo(vid: vid, url: out.first?.url, key: topKey, duration: nil,
+                                expiresAt: topExpires, err: nil, streams: out)
+        NSLog("[HG] engine ok vid=%@ streams=%d", vid, out.count)
+        return r
+    }
+
     func resolveFresh(vid: String) async throws -> HGResolvedVideo {
         var sawSoftReject = false
+        // 主路径：直接运行上游已验证可播放的 hongguo.js（QuickJS 沙箱 + 受限 fetch），
+        // Swift 侧不再重写签名/设备注册，彻底规避移植细节偏差导致的 200 空正文软拒绝。
+        if let r = try? await resolveViaEngine(vid) { return r }
+        // 引擎失败再降级到原有 Swift 移植链路。
         await refreshDeviceIfStaleForPlayback()
         _ = try? await ensureDevice()   // legacy chain below wants a device_register device too
         // V5 signed playback (THL built-in profile: x-medusa carries the real signature) first;

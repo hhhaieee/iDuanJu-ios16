@@ -215,4 +215,11 @@ final class HGPlayerSigningTests: XCTestCase {
         XCTAssertNotNil(h["x-helios"])
         XCTAssertGreaterThan(h["x-medusa"]?.count ?? 0, 200)   // 真签名（~268 字符）
     }
+
+    /// hongguo.js 取流引擎自举：确认内嵌 bundle 能加载且暴露取流接口（不发网络请求）。
+    func testHongguoEngineBoots() async throws {
+        let keys = try await HGEngine.selfCheck()
+        XCTAssertTrue(keys.contains("fetchAppPlayUrl"), "引擎未暴露 fetchAppPlayUrl: \(keys)")
+        XCTAssertTrue(keys.contains("fetchAppDetailRaw"))
+    }
 }

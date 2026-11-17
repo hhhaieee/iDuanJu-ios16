@@ -1,9 +1,10 @@
-hongguo V5 signer (hgv5sign.js) — GPL-3.0-only
-==============================================
+hongguo signer & playback engine — GPL-3.0-only
+================================================
 
 SPDX-License-Identifier: GPL-3.0-only
 
-Bundled resource STV/Resources/hgv5sign.js is extracted
+Bundled resources STV/Resources/hgv5sign.js (signature-only) and
+STV/Resources/hongguo_app.js (full in-app playback engine) are taken
 from the THLRedGuo "official-source" hongguo.js CatPawOpen spider
 (version 1.1.0-dev.23):
 
