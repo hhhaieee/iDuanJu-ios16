@@ -930,7 +930,8 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
 
     // MARK: 下载本集
 
-    /// 下载当前正在播放的这一集，完成后登记进「下载管理」。可从相册或下载管理里查看。
+    /// 下载当前正在播放的这一集，完成后可在「下载管理」查看或存相册。
+    /// 下载过程会实时登记进下载管理（显示进度、可暂停/删除）。
     func downloadCurrentEpisode() {
         guard !isDownloading else { return }
         guard let i = current ?? readyIndex, episodes.indices.contains(i) else {
@@ -939,34 +940,60 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         }
         let ep = episodes[i]
         let dlSeries = series
-        let title = series.title
-        let channel = series.source.label
-        let thumb = series.cover
-        let remoteHint = chosen[i]?.url ?? ""
+        let id = "video-\(series.id)-\(ep.id)"
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        performVideoDownload(series: dlSeries, episode: ep, id: id,
+                             title: series.title, channel: series.source.label,
+                             thumb: series.cover, remote: chosen[i]?.url ?? "")
+    }
+
+    /// 实际执行下载并驱动下载管理状态。retry 闭包会再次调用它（暂停/失败后点继续）。
+    private func performVideoDownload(series dlSeries: HGSeries, episode ep: HGEpisode, id: String,
+                                      title: String, channel: String, thumb: String, remote: String) {
+        let fileName = id + ".mp4"
+        TGDownloads.shared.beginVideo(id: id, title: "\(title) · 第\(ep.ep)集",
+                                      channel: channel, remote: remote, thumb: thumb,
+                                      fileName: fileName, duration: ep.duration)
         isDownloading = true
-        downloadMessage = "正在下载第 \(ep.ep) 集…"
-        Task { [weak self] in
+        downloadMessage = "正在下载第 \(ep.ep) 集…（可在下载管理查看进度）"
+
+        var downloadTask: Task<Void, Never>?
+        let retry = { [weak self] in
+            self?.performVideoDownload(series: dlSeries, episode: ep, id: id,
+                                       title: title, channel: channel, thumb: thumb, remote: remote)
+        }
+        downloadTask = Task { [weak self] in
+            let t = downloadTask
+            TGDownloads.shared.bindCancel(id) { t?.cancel() }
+            TGDownloads.shared.bindRetry(id, retry)
             do {
-                let url = try await VideoDownloadService.download(series: dlSeries, episode: ep)
-                let name = url.lastPathComponent
-                let id = "video-\(series.id)-\(ep.id)"
-                    .replacingOccurrences(of: "/", with: "_")
-                    .replacingOccurrences(of: ":", with: "_")
-                    .replacingOccurrences(of: " ", with: "_")
+                let url = try await VideoDownloadService.download(series: dlSeries, episode: ep) { pct in
+                    Task { @MainActor in TGDownloads.shared.updateVideo(id, fraction: pct) }
+                }
                 await MainActor.run {
-                    TGDownloads.shared.registerVideo(id: id, title: "\(title) · 第\(ep.ep)集",
-                                                     channel: channel, remote: remoteHint, thumb: thumb,
-                                                     fileName: name, duration: ep.duration)
+                    TGDownloads.shared.finishVideo(id, fileName: url.lastPathComponent)
                     self?.isDownloading = false
                     self?.downloadMessage = "第 \(ep.ep) 集已下载，可在「下载管理」查看或存到相册"
                 }
+            } catch is CancellationError {
+                await MainActor.run {
+                    if let item = TGDownloads.shared.item(id), item.state == .running {
+                        TGDownloads.shared.failVideo(id, error: "已取消")
+                    }
+                    self?.isDownloading = false
+                    self?.downloadMessage = "下载已暂停"
+                }
             } catch {
                 await MainActor.run {
+                    TGDownloads.shared.failVideo(id, error: error.localizedDescription)
                     self?.isDownloading = false
                     self?.downloadMessage = "下载失败：\(error.localizedDescription)"
                 }
             }
         }
+        _ = downloadTask
     }
 
     func seek(fraction: Double) {
