@@ -31,7 +31,7 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.local.STV
       GENERATE_INFOPLIST_FILE: YES
       MARKETING_VERSION: "1.5.3"
-      CURRENT_PROJECT_VERSION: "55"
+      CURRENT_PROJECT_VERSION: "56"
       SWIFT_EMIT_LOC_STRINGS: YES
       SWIFT_OBJC_BRIDGING_HEADER: STV/Support/STV-Bridging-Header.h
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -66,7 +66,7 @@ targets:
         # 备份文件类型：本 App 自己生成/拥有，声明为 exported 才能让导出面板右上角显示「保存」而非「移动」，
         # 同时让「文件」App 与本 App 的 fileImporter 都能识别 .idjbackup。
         UTExportedTypeDeclarations:
-          - UTTypeIdentifier: com.local.STV.backup
+          - UTTypeIdentifier: com.local.stv.backup
             UTTypeDescription: 黑果夜剧备份
             UTTypeConformsTo:
               - public.data
@@ -80,7 +80,7 @@ targets:
             LSHandlerRank: Owner
           - CFBundleTypeName: 黑果夜剧备份
             LSItemContentTypes:
-              - com.local.STV.backup
+              - com.local.stv.backup
             LSHandlerRank: Owner
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
