@@ -62,11 +62,11 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build55 弹幕开关/导出保存/下载与角标修复"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build56 下载/切屏/画中画/备份恢复修复"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes "build55: 弹幕所有开关恢复响应(@Published) · 备份行去白线 · 导出改存储/外部点开备份可恢复 · 黄果下载 remux 修复 · 下载管理角标实时联动"
+            gh release edit "$TAG" --title "$TITLE" --notes "build56: 黄果下载改解码重编码修复空壳9KB(可播放/可存相册) · 横竖屏切集与点击唤醒修复 · 画中画切回解锁并恢复播放 · 备份文件可选(放宽类型过滤+扩展名校验) · 切集集数提示去除 · 倍速删0.5/0.75/2.5 · 弹幕弹开时设置实时生效 · 底部渐变加深"
           else
             gh release create "$TAG" "dist/$ASSET" --title "$TITLE" \
-              --notes "build55: 弹幕所有开关恢复响应(@Published) · 备份行去白线 · 导出改存储/外部点开备份可恢复 · 黄果下载 remux 修复 · 下载管理角标实时联动"
+              --notes "build56: 黄果下载改解码重编码修复空壳9KB(可播放/可存相册) · 横竖屏切集与点击唤醒修复 · 画中画切回解锁并恢复播放 · 备份文件可选(放宽类型过滤+扩展名校验) · 切集集数提示去除 · 倍速删0.5/0.75/2.5 · 弹幕弹开时设置实时生效 · 底部渐变加深"
           fi
