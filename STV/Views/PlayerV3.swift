@@ -79,7 +79,7 @@ struct PlayerTechStrip: View {
 
 // MARK: Centre controls
 
-/// ⟲10 · ▶ (76 pt glass, the outer ring doubles as buffer / loading progress) · ⟳10.
+/// ▶ (76 pt glass; outer ring doubles as buffer/loading progress). Skip buttons removed — seek via screen swipe.
 struct PlayerCenterControls: View {
     let co: PlaybackCoordinator
     let onInteract: () -> Void
@@ -89,9 +89,6 @@ struct PlayerCenterControls: View {
         let loading = co.readyIndex == nil || (co.waitingForMedia && !co.paused)
         let buffered = co.duration > 0 ? min(1, co.bufferedUntil / co.duration) : 0
         HStack(spacing: 46) {
-            Button { co.seek(by: -10); onInteract() } label: {
-                Image(systemName: "gobackward.10").font(.system(size: 26, weight: .regular)).frame(width: 44, height: 44)
-            }.accessibilityLabel("快退10秒").accessibilityIdentifier("player.back10")
             Button { co.togglePause(); onInteract() } label: {
                 ZStack {
                     Circle().fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
@@ -112,9 +109,6 @@ struct PlayerCenterControls: View {
                 .frame(width: 76, height: 76)
             }
             .accessibilityLabel(co.paused ? "播放" : "暂停").accessibilityIdentifier("player.playPause")
-            Button { co.seek(by: 10); onInteract() } label: {
-                Image(systemName: "goforward.10").font(.system(size: 26, weight: .regular)).frame(width: 44, height: 44)
-            }.accessibilityLabel("快进10秒").accessibilityIdentifier("player.fwd10")
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)
