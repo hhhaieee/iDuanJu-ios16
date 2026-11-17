@@ -7,9 +7,8 @@ actor HongguoClient {
     static let shared = HongguoClient()
 
     private let session: URLSession
-    /// 红果播放专用会话：device_register + 取流统一走它，强制直连、不走代理。
-    /// 注册与取流必须同一出口 IP，否则上游判定「设备身份 IP 漂移」→ 200 空正文软拒绝。
-    /// 系统代理/SOCKS 也会触发软拒绝，故这里显式清空 connectionProxyDictionary。
+    /// 红果取流会话：与搜索共用出口（跟随 App 代理配置）。
+    /// 三次诊断证明取流域名走强制直连会 80–200s 超时、上游空包；跟随代理后与搜索同出口才通。
     let playerSession: URLSession
     private var device: HGDevice?
     private var registering: Task<HGDevice, Error>?
@@ -29,15 +28,12 @@ actor HongguoClient {
         cfg.httpShouldSetCookies = false
         ProxySettings.shared.apply(to: cfg)
         session = URLSession(configuration: cfg)
-        let pcfg = URLSessionConfiguration.ephemeral
-        pcfg.timeoutIntervalForRequest = 20
+        let pcfg = URLSessionConfiguration.default
+        pcfg.timeoutIntervalForRequest = 30
         pcfg.httpCookieStorage = nil
         pcfg.httpShouldSetCookies = false
-        // Empty dict alone does not defeat Clash TUN/fake-ip; still disable URLSession-level HTTP/HTTPS/SOCKS.
-        pcfg.connectionProxyDictionary = [
-            "HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0,
-            "HTTPProxy": "", "HTTPSProxy": "", "SOCKSProxy": ""
-        ]
+        // 取流域名直连会超时/空包，必须与搜索同出口：跟随 App 代理配置。
+        ProxySettings.shared.apply(to: pcfg)
         playerSession = URLSession(configuration: pcfg)
     }
 

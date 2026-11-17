@@ -31,17 +31,17 @@ enum HGEngine {
         }
     }
 
-    // MARK: - 同步网络层（强制直连，不走代理）
+    // MARK: - 同步网络层
+    // 取流域名（log.snssdk.com / api5-normal-sinfonlineb.fqnovel.com / vas-lf-x.snssdk.com）
+    // 在部分网络下直连不通或被限速，必须与搜索走同一出口：跟随 App 代理配置。
+    // 三次诊断证明：搜索（跟随代理）毫秒级，取流（强制直连）80–200s，与签名/引擎实现无关。
 
     private static let netSession: URLSession = {
-        let c = URLSessionConfiguration.ephemeral
-        c.timeoutIntervalForRequest = 15
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 30
         c.httpCookieStorage = nil
         c.httpShouldSetCookies = false
-        c.connectionProxyDictionary = [
-            "HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0,
-            "HTTPProxy": "", "HTTPSProxy": "", "SOCKSProxy": ""
-        ]
+        ProxySettings.shared.apply(to: c)
         return URLSession(configuration: c)
     }()
 
@@ -76,7 +76,7 @@ enum HGEngine {
         var req = URLRequest(url: url)
         req.httpMethod = (a["method"] as? String ?? "GET").uppercased()
         let ms = a["timeoutMs"] as? Int ?? 12_000
-        req.timeoutInterval = min(max(Double(ms) / 1000, 1), 20)
+        req.timeoutInterval = min(max(Double(ms) / 1000, 1), 30)
         if let hs = a["headers"] as? [String: Any] {
             for (k, v) in hs { req.setValue("\(v)", forHTTPHeaderField: k) }
         }
@@ -157,7 +157,7 @@ enum HGEngine {
     globalThis.__hgPlay = async function(arg) {
       const App = globalThis.HongguoApp;
       const r = await App.fetchAppPlayUrl(arg.vid, {
-        deadline: Date.now() + 60000, refreshModel: false, includeFallback: true,
+        deadline: Date.now() + 120000, refreshModel: false, includeFallback: true,
         quality: arg.quality || 0
       });
       const variants = r && r.variants ? r.variants : [r];
@@ -251,7 +251,7 @@ enum HGEngine {
                     let arg: [String: Any] = ["vid": vid, "quality": quality]
                     let argJSON = String(decoding: (try? JSONSerialization.data(withJSONObject: arg)) ?? Data("{}".utf8), as: UTF8.self)
                     var err: UnsafeMutablePointer<CChar>?
-                    guard let raw = idj_eval_script(b, "__hgPlay(\(argJSON))", 120, &err) else {
+                    guard let raw = idj_eval_script(b, "__hgPlay(\(argJSON))", 200, &err) else {
                         let m = err.map { String(cString: $0) } ?? "调用失败"
                         if let err { idj_str_free(err) }
                         cont.resume(throwing: Failure.call(m)); return
