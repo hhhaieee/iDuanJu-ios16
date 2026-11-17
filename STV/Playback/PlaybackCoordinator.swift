@@ -46,7 +46,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         return "\(ns.localizedDescription)（\(ns.code)\(under)）"
     }
 
-    static let rateSteps: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
+    static let rateSteps: [Double] = [1.0, 1.25, 1.5, 1.75, 2.0, 3.0]
 
     let series: HGSeries
     /// 下载本集的状态反馈（字幕面板触发）。
