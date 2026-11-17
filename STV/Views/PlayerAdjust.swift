@@ -23,10 +23,11 @@ final class PlayerAdjuster: ObservableObject {
 
     static func zone(x: CGFloat, width: CGFloat, landscape: Bool, edge: CGFloat) -> AdjustSide? {
         guard width > 0, x >= edge, x <= width - 8 else { return nil }
-        // 横屏（全屏）不再用上下滑调音量/亮度：上下滑改为切换上下集（音量在「音轨」面板里调）。
-        if landscape { return nil }
-        if x < width * 0.2 { return .brightness }
-        if x > width * 0.8 { return .volume }
+        // 横竖屏一致：左边缘上下滑调亮度、右边缘调音量，中间区域留给切集 / 进度。
+        // 横屏全屏较宽，边缘取固定拇指宽度；竖屏取外侧 1/5 窄条。
+        let strip = landscape ? min(96, width * 0.16) : width * 0.2
+        if x < strip { return .brightness }
+        if x > width - strip { return .volume }
         return nil
     }
 
