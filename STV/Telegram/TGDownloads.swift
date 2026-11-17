@@ -100,6 +100,21 @@ final class TGDownloads: NSObject, ObservableObject {
 
     func item(_ id: String) -> TGDownload? { items.first { $0.id == id } }
 
+    /// Registers an already-downloaded video file (from the player's 下载本集) in 下载管理.
+    /// The file must already live in `TGDownloads.dir` under `fileName`.
+    @discardableResult
+    func registerVideo(id: String, title: String, channel: String, remote: String, thumb: String,
+                       fileName: String, duration: Int = 0) -> String {
+        let size = (try? Self.dir.appendingPathComponent(fileName).resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        var d = TGDownload(id: id, kind: .video, title: title, channel: channel, remote: remote, thumb: thumb,
+                           duration: duration, state: .done, received: size, expected: size, fileName: fileName)
+        d.isAdult = false
+        items.removeAll { $0.id == id }
+        items.insert(d, at: 0)
+        save()
+        return id
+    }
+
     var totalBytes: Int64 { items.filter { $0.state == .done }.reduce(0) { $0 + max($1.received, $1.expected) } }
 
     // MARK: Queue
