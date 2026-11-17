@@ -1,5 +1,7 @@
 import Foundation
 import AVFoundation
+import CoreMedia
+import CoreVideo
 
 /// Downloads the episode currently playing into a standalone MP4 in the app's Downloads folder,
 /// so it shows up in 下载管理 (TGDownloads) and can be saved to the photo library.
@@ -202,55 +204,110 @@ enum VideoDownloadService {
             throw DownloadError.exportFailed(last.localizedDescription)
         }
         guard FileManager.default.fileExists(atPath: dest.path) else { throw DownloadError.emptyData }
+        // 空壳校验：重编码可能「完成」但写出 0 帧（典型 9 KB 只有 moov）。用 AVAsset 复核时长，
+        // 时长无效或过小一律判失败，避免坏文件被当成下载成功、也无法存相册。
+        let probe = AVURLAsset(url: dest)
+        let dur = try? await probe.load(.duration)
+        let seconds = dur?.seconds ?? 0
+        guard seconds.isFinite, seconds > 0.3 else {
+            try? FileManager.default.removeItem(at: dest)
+            throw DownloadError.exportFailed("导出文件无有效画面（时长异常）")
+        }
         progress?(1)
     }
 
-    /// 逐 sample 直拷 remux（不解码、不重编码），把明文 TS 的音视频轨原样写进 MP4。
-    /// 绕开 AVAssetExportSession 在 iOS 16 上对拼接 TS 的 passthrough 兼容问题。
+    /// 解码 → 重编码 remux：把明文 TS 的音视频解码为原始帧，再编码写进 MP4。
+    /// 关键：TS 里的 H.264/AAC 用 passthrough（outputSettings: nil）直拷进 MP4，
+    /// 在 iOS 16 上会产出只有 moov 头、没有 mdat 的「空壳」文件（典型 9 KB，看似成功却无法播放/存相册）。
+    /// 解码重编码兼容性最好；同时统计实际写入帧数，零帧一律判失败，杜绝空壳被误判成功。
     private static func remuxByReaderWriter(_ asset: AVAsset, to dest: URL) async throws {
         let reader = try AVAssetReader(asset: asset)
         let writer = try AVAssetWriter(outputURL: dest, fileType: .mp4)
-        var outputs: [AVAssetReaderTrackOutput] = []
-        var inputs: [AVAssetWriterInput] = []
-        for track in asset.tracks {
-            let out = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+
+        // 视频：解码为 BGRA 像素 → 重编码 H.264，保留方向变换。
+        var videoOut: AVAssetReaderTrackOutput?
+        var videoIn: AVAssetWriterInput?
+        if let vt = asset.tracks(withMediaType: .video).first {
+            let decode: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+            let out = AVAssetReaderTrackOutput(track: vt, outputSettings: decode)
             out.alwaysCopiesSampleData = false
-            let input = AVAssetWriterInput(mediaType: track.mediaType, outputSettings: nil)
+            let transform = vt.preferredTransform
+            let disp = vt.naturalSize.applying(transform)
+            let w = max(2, Int(abs(disp.width))), h = max(2, Int(abs(disp.height)))
+            let encode: [String: Any] = [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: w,
+                AVVideoHeightKey: h,
+                AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 2_000_000]
+            ]
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: encode)
             input.expectsMediaDataInRealTime = false
-            guard reader.canAdd(out), writer.canAdd(input) else { continue }
-            reader.add(out)
-            writer.add(input)
-            outputs.append(out)
-            inputs.append(input)
+            input.transform = transform
+            if reader.canAdd(out), writer.canAdd(input) {
+                reader.add(out); writer.add(input)
+                videoOut = out; videoIn = input
+            }
         }
-        guard !inputs.isEmpty else { throw DownloadError.exportFailed("无可用音视频轨道") }
+
+        // 音频：解码为 44.1k/2ch LinearPCM → 重编码 AAC。
+        var audioOut: AVAssetReaderTrackOutput?
+        var audioIn: AVAssetWriterInput?
+        if let at = asset.tracks(withMediaType: .audio).first {
+            let decode: [String: Any] = [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 2
+            ]
+            let out = AVAssetReaderTrackOutput(track: at, outputSettings: decode)
+            out.alwaysCopiesSampleData = false
+            let encode: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: 128000
+            ]
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: encode)
+            input.expectsMediaDataInRealTime = false
+            if reader.canAdd(out), writer.canAdd(input) {
+                reader.add(out); writer.add(input)
+                audioOut = out; audioIn = input
+            }
+        }
+
+        guard videoIn != nil || audioIn != nil else { throw DownloadError.exportFailed("无可用音视频轨道") }
         guard reader.startReading(), writer.startWriting() else {
             throw DownloadError.exportFailed("无法启动导出")
         }
         writer.startSession(atSourceTime: .zero)
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        struct Lane { let input: AVAssetWriterInput; let output: AVAssetReaderTrackOutput }
+        var lanes: [Lane] = []
+        if let vIn = videoIn, let vOut = videoOut { lanes.append(Lane(input: vIn, output: vOut)) }
+        if let aIn = audioIn, let aOut = audioOut { lanes.append(Lane(input: aIn, output: aOut)) }
+
+        let written = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int, Error>) in
             let group = DispatchGroup()
             let lock = NSLock()
             var failure: Error?
-            for (i, input) in inputs.enumerated() {
+            var count = 0
+            for (i, lane) in lanes.enumerated() {
                 group.enter()
-                let output = outputs[i]
-                input.requestMediaDataWhenReady(on: DispatchQueue(label: "stv.remux.\(i)")) {
-                    while input.isReadyForMoreMediaData {
-                        guard let buf = output.copyNextSampleBuffer() else {
-                            input.markAsFinished()
+                lane.input.requestMediaDataWhenReady(on: DispatchQueue(label: "stv.remux.\(i)")) {
+                    while lane.input.isReadyForMoreMediaData {
+                        guard let buf = lane.output.copyNextSampleBuffer() else {
+                            lane.input.markAsFinished()
                             group.leave()
                             return
                         }
-                        if !input.append(buf) {
+                        if !lane.input.append(buf) {
                             lock.lock()
                             failure = writer.error ?? DownloadError.exportFailed("写入媒体数据失败")
                             lock.unlock()
-                            input.markAsFinished()
+                            lane.input.markAsFinished()
                             group.leave()
                             return
                         }
+                        lock.lock(); count += 1; lock.unlock()
                     }
                 }
             }
@@ -260,12 +317,13 @@ enum VideoDownloadService {
                     cont.resume(throwing: e)
                     return
                 }
-                writer.finishWriting { cont.resume() }
+                writer.finishWriting { cont.resume(returning: count) }
             }
         }
         guard writer.status == .completed else {
             throw DownloadError.exportFailed(writer.error?.localizedDescription ?? "导出未完成")
         }
+        guard written > 0 else { throw DownloadError.exportFailed("未写出任何媒体帧") }
     }
 
     /// 下载字节（带 headers + UA），取消归一为 DownloadError.cancelled。
