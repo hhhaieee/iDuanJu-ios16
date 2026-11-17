@@ -1,0 +1,63 @@
+name: Publish Release from Artifact
+
+# 轻量发布：从已有 workflow run 的 artifact 里取 IPA，直接创建 GitHub Release。
+# 用于本地沙箱到 GitHub CDN 下载过慢的场景（runner 在内网，下载/上传都快）。
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Source workflow run id that produced the IPA artifact'
+        required: true
+        type: string
+      tag:
+        description: 'Release tag (e.g. v1.5.3-46)'
+        required: true
+        type: string
+      title:
+        description: 'Release title'
+        required: true
+        type: string
+      asset_name:
+        description: 'IPA asset file name'
+        required: true
+        type: string
+      notes:
+        description: 'Release notes'
+        required: false
+        type: string
+        default: '内嵌 hongguo.js 取流引擎（QuickJS + 受限 fetch），根治 Swift 移植软拒绝。'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact from source run
+        uses: actions/download-artifact@v4
+        with:
+          name: STV-ios16-unsigned
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifact
+
+      - name: Locate and rename IPA
+        run: |
+          set -euo pipefail
+          IPA=$(find artifact -type f -name '*.ipa' | head -1)
+          test -n "$IPA" || { echo "no ipa found"; exit 1; }
+          mkdir -p out
+          cp "$IPA" "out/${{ inputs.asset_name }}"
+          ls -la out
+
+      - name: Create release and upload IPA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.tag }}" \
+            "out/${{ inputs.asset_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "${{ inputs.title }}" \
+            --notes "${{ inputs.notes }}"
