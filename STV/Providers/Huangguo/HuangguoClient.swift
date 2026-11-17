@@ -413,7 +413,8 @@ actor HuangguoClient {
 
     /// AI detail page cover. 2026-11: `og:image` points at a share host (expose.eisees.com) that answers
     /// 200 with an EMPTY body, so the hero stayed blank. The real cover is the page's `coverSrc` / `posterSrc`
-    /// JSON (pic.drleao.cn, AES like the cards); then the list card's cover; og:image only as a last resort.
+    /// JSON (pic.* CDN, domain rotates: drleao.cn -> qnlycc.cn, AES like the cards); then the list
+    /// card's cover; og:image only as a last resort. Match any pic.* host so future CDN rotations keep working.
     static func aiDetailCover(_ h: String, page: String, listCover: String) -> String {
         func clean(_ s: String) -> String { HTML.unescape(s.replacingOccurrences(of: "\\/", with: "/")).trimmingCharacters(in: .whitespaces) }
         for key in ["coverSrc", "posterSrc", "cover_src", "poster", "cover"] {
@@ -422,7 +423,7 @@ actor HuangguoClient {
                 if !Self.deadCoverHost(abs) { return abs }
             }
         }
-        if let m = HTML.groups("(https://pic\\.drleao\\.cn/[^\"'\\s<>]+)", h) { return clean(m[1]) }
+        if let m = HTML.groups("(https://pic\\.[a-z0-9.-]+/[^\"'\\s<>]+)", h) { return clean(m[1]) }
         if !listCover.isEmpty { return listCover }
         let og = HTML.resolve(page, HTML.ogImage(h))
         return Self.deadCoverHost(og) ? "" : og
@@ -503,7 +504,7 @@ actor HuangguoClient {
             if covers[id] != nil { continue }
             if let range = html.range(of: m[0]) {
                 let window = String(html[range.lowerBound...].prefix(1200))
-                if let c = HTML.groups("https://pic\\.drleao\\.cn[^\"\\s<>]+", window) {
+                if let c = HTML.groups("https://pic\\.[a-z0-9.-]+[^\"\\s<>]+", window) {
                     covers[id] = c[0]
                 }
             }
