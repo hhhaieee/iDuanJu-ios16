@@ -92,6 +92,7 @@ struct STVApp: App {
             .background(STVTheme.bg.ignoresSafeArea())
             .background(TabBarHider())
             .environmentObject(appearance)
+            .modifier(BackupOpenURLHandler())
         }
     }
 }
