@@ -40,6 +40,10 @@ struct PlayerScreen: View {
     @State private var loadError: Error?
     @State private var showChrome = true
     @State private var lastInteraction = Date()
+    /// 切集/自动连播时抑制中心大播放按钮，直到新集 ready 后用户显式交互；避免切换瞬间按钮闪现。
+    @State private var centerSuppressed = false
+    /// 记录是否已完成首次加载，用于区分「首载」与「切集」（iOS 16 单参数 onChange 无 old 值）。
+    @State private var didInitialLoad = false
     @State private var scrubbing = false
     @State private var locked = false
     @State private var altSources: [HGSeries] = []
@@ -166,7 +170,7 @@ struct PlayerScreen: View {
                     } else if locked {
                         if controlsVisible { lockOnly(full, ins: ins).transition(.opacity) }
                     } else if controlsVisible {
-                        if co.current != nil, !scrubbing, panel == nil {
+                        if !centerSuppressed, co.current != nil, !scrubbing, panel == nil {
                             PlayerCenterControls(co: co, onInteract: flashChrome)
                                 .position(x: landscape ? full.width / 2 : rect.midX, y: landscape ? full.height / 2 : rect.midY)
                                 .transition(.opacity)
@@ -256,8 +260,28 @@ struct PlayerScreen: View {
             // 2) 延后：清理观察者 / 改 @Published 状态，避免在视图销毁过程中触发重渲染。
             DispatchQueue.main.async { coordinator.teardown() }
         }
-        .onChange(of: co.current) { _ in scrubbing = false; flashChrome() }
-        .onChange(of: co.readyIndex) { index in if index != nil { flashChrome() } }
+        .onChange(of: co.current) { new in
+            scrubbing = false
+            if didInitialLoad, new != nil {
+                // 切集 / 自动连播：刷新 chrome 后抑制中心按钮，直到新集 ready 且用户显式交互。
+                flashChrome()
+                centerSuppressed = true
+            } else {
+                // 首载：正常显示中心按钮。
+                didInitialLoad = true
+                flashChrome()
+            }
+        }
+        .onChange(of: co.readyIndex) { index in
+            guard index != nil else { return }
+            if centerSuppressed {
+                // 新集就绪：只重置 auto-hide 计时，不 flash（flash 会清掉 suppressed 导致按钮闪现）。
+                showChrome = true
+                lastInteraction = Date()
+            } else {
+                flashChrome()
+            }
+        }
         .onChange(of: landscape) { l in if !l { locked = false }; panel = nil }
         .onChange(of: co.downloadMessage) { msg in if let msg { showOSD(msg) } }
         .onChange(of: locked) { isLocked in
@@ -329,7 +353,7 @@ struct PlayerScreen: View {
                 if lastShownCurrent != nil, let new, co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
                 lastShownCurrent = new
             }
-            .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
+            .scrollDisabled(locked || speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
         } else {
             GeometryReader { geo in
                 ScrollViewReader { proxy in
@@ -449,7 +473,7 @@ struct PlayerScreen: View {
                         // 若仍在 anchoring（等 y 到达目标页），不在这里强行启用，交给到达检测 / 2s 兜底。
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if !feedAnchoring { feedInitialized = true } }
                     }
-                    .scrollDisabled(speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
+                    .scrollDisabled(locked || speedMode || scrubbing || co.pipActive || panel != nil || co.readyIndex != co.current)
                 }
             }
             .compatSelectionFeedback(trigger: co.current)
@@ -957,7 +981,7 @@ struct PlayerScreen: View {
     private func handleTap() {
         if panel != nil { closePanel(); return }
         if locked { flashChrome(); return }
-        if showChrome && controlsVisible { withAnimation(.easeOut(duration: 0.2)) { showChrome = false } }
+        if showChrome && controlsVisible && !centerSuppressed { withAnimation(.easeOut(duration: 0.2)) { showChrome = false } }
         else { flashChrome() }
     }
 
@@ -1050,6 +1074,7 @@ struct PlayerScreen: View {
     }
 
     private func flashChrome() {
+        centerSuppressed = false
         showChrome = true
         lastInteraction = Date()
     }
