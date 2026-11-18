@@ -62,11 +62,12 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build58 备份自建列表/下载时间戳/弹幕设置/横竖屏/音轨音量"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build59 下载架构重写/弹幕设置即时生效/精简倍速"
+          NOTES="build59: 黄果下载彻底重写——分片独立落盘+本地m3u8+系统按HLS语义重编码导出，修fMP4分片拼接导致的-11828格式无法识别 · 弹幕设置加全局revision信号+去掉暂停停帧，区域/速度/字号改动即时生效 · 播放速度删除0.5x/0.75x/2.5x保留常用档位"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes "build58: 备份改App内自建文件列表(绕开侧载失效的系统选择器) · 黄果下载重打时间戳修导出失败+真实错误透传 · 弹幕设置变更强制重建overlay实时生效 · 修横屏转竖屏跳回第一集 · 删除音轨面板音量条"
+            gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
           else
             gh release create "$TAG" "dist/$ASSET" --title "$TITLE" \
-              --notes "build58: 备份改App内自建文件列表(绕开侧载失效的系统选择器) · 黄果下载重打时间戳修导出失败+真实错误透传 · 弹幕设置变更强制重建overlay实时生效 · 修横屏转竖屏跳回第一集 · 删除音轨面板音量条"
+              --notes "$NOTES"
           fi
