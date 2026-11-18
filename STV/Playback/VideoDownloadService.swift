@@ -187,6 +187,10 @@ enum VideoDownloadService {
         do {
             try await remuxByReaderWriter(asset, to: dest)
         } catch {
+            // 透传 remux 的真实错误（domain + code + 描述），避免被回退导出的
+            // 通用文案「这项操作无法完成」吞掉——下次若仍失败可据此精确定位。
+            let ne = error as NSError
+            let remuxDetail = "\(ne.domain)(\(ne.code)) \(ne.localizedDescription)"
             var last: Error = error
             for preset in [AVAssetExportPresetHighestQuality, AVAssetExportPresetPassthrough] {
                 if Task.isCancelled { throw DownloadError.cancelled }
@@ -201,7 +205,8 @@ enum VideoDownloadService {
                 if ex.status == .completed { progress?(1); return }
                 last = ex.error ?? last
             }
-            throw DownloadError.exportFailed(last.localizedDescription)
+            let le = last as NSError
+            throw DownloadError.exportFailed("重编码失败[\(remuxDetail)]；回退失败[\(le.domain)(\(le.code)) \(le.localizedDescription)]")
         }
         guard FileManager.default.fileExists(atPath: dest.path) else { throw DownloadError.emptyData }
         // 空壳校验：重编码可能「完成」但写出 0 帧（典型 9 KB 只有 moov）。用 AVAsset 复核时长，
@@ -290,8 +295,23 @@ enum VideoDownloadService {
             let lock = NSLock()
             var failure: Error?
             var count = 0
+            // 拼接 TS 的各分片沿用源 PTS，常有回退/重叠/不从 0 起，直接 append 会让
+            // AVAssetWriter 中途进入 failed（「这项操作无法完成」）。这里不沿用源 PTS，
+            // 每条轨道独立从 0 起按 buffer 自身时长累加，生成严格单调的新时间戳。
+            class Clock {
+                var t: CMTime = .zero
+                let lock = NSLock()
+                func next(_ d: CMTime) -> CMTime {
+                    lock.lock(); defer { lock.unlock() }
+                    let dur = d.isValid && d.seconds > 0 ? d : CMTime(value: 1, timescale: 30)
+                    let pts = t
+                    t = t + dur
+                    return pts
+                }
+            }
             for (i, lane) in lanes.enumerated() {
                 group.enter()
+                let clock = Clock()
                 lane.input.requestMediaDataWhenReady(on: DispatchQueue(label: "stv.remux.\(i)")) {
                     while lane.input.isReadyForMoreMediaData {
                         guard let buf = lane.output.copyNextSampleBuffer() else {
@@ -299,7 +319,22 @@ enum VideoDownloadService {
                             group.leave()
                             return
                         }
-                        if !lane.input.append(buf) {
+                        // 重打时间戳：新 PTS = 该轨单调游标；decode 时间置无效。
+                        let dur = CMSampleBufferGetDuration(buf)
+                        let pts = clock.next(dur)
+                        var newTiming = CMSampleTimingInfo(
+                            duration: dur.isValid && dur.seconds > 0 ? dur : CMTime(value: 1, timescale: 30),
+                            presentationTimeStamp: pts,
+                            decodeTimeStamp: .invalid
+                        )
+                        var rebuilt: CMSampleBuffer?
+                        let st = CMSampleBufferCreateCopyWithNewTiming(
+                            allocator: nil, sampleBuffer: buf,
+                            sampleTimingEntryCount: 1, sampleTimingArray: &newTiming,
+                            sampleBufferOut: &rebuilt
+                        )
+                        let toAppend: CMSampleBuffer = (st == noErr && rebuilt != nil) ? rebuilt! : buf
+                        if !lane.input.append(toAppend) {
                             lock.lock()
                             failure = writer.error ?? DownloadError.exportFailed("写入媒体数据失败")
                             lock.unlock()
