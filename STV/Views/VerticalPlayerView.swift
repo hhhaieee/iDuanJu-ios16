@@ -355,15 +355,13 @@ struct PlayerScreen: View {
     /// top bar, `DanmakuRegion` decides how many fit above the bottom controls. 14 pt fade at both sides.
     private func danmakuLayer(_ i: Int, full: CGSize, ins: EdgeInsets) -> some View {
         let r = DanmakuRegion.compute(screen: full, safeTop: ins.top, safeBottom: ins.bottom, landscape: landscape, showTech: showTech,
-                                      area: danmaku.area.fraction, laneHeight: DanmakuOverlay.laneHeight(danmaku), maxRows: danmaku.rows)
-        // 设置任意一项变化即强制重建 overlay：重新 load（命中 5 分钟缓存，几乎无感）并按新参数
-        // 重排重绘。绕开 TimelineView 在 paused（暂停看弹幕）/Canvas 缓存下改设置不生效的链路。
-        // revision 是任意设置变化都会递增的唯一版本；把它纳入 key 确保设置面板一改动
-        // 就强制重建覆盖层，绕开「值未变 / TimelineView 暂停停帧 / Canvas 缓存」导致的漏刷新。
-        let dmKey = "\(danmaku.revision)|\(danmaku.area.rawValue)|\(danmaku.rows)|\(danmaku.speed.rawValue)|\(danmaku.size.rawValue)|\(danmaku.merge)|\(danmaku.likesPriority)|\(Int(danmaku.opacity * 100))"
+                                      area: danmaku.area.fraction, laneHeight: DanmakuOverlay.laneHeight(danmaku), maxRows: danmaku.size.rows)
+        // 不用 .id() 按 settings 重建覆盖层：重建会把已加载的弹幕清空并重新走网络，
+        // 弹幕开着时改设置反而「没反应」。overlay 内部是 @ObservedObject(DanmakuSettings)
+        // + onChange(layoutKey) + Canvas 每帧实时读取，设置一变即在内存里重排重绘，即时生效；
+        // 换集由 .task(id: vid) 负责，区域几何变化时 laneTop/laneSpacing 参数原地更新。
         return DanmakuOverlay(co: co, seriesId: series.seriesId, vid: co.episodes[i].vid, landscape: landscape,
                               laneTop: r.top, laneCount: r.rows, laneSpacing: r.laneSpacing)
-            .id(dmKey)
             .frame(width: full.width, height: full.height)
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 14 / max(1, full.width)),
                                          .init(color: .black, location: 1 - 14 / max(1, full.width)), .init(color: .clear, location: 1)],
