@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build60 下载改本地http导出/弹幕实时预览/显示区域修正"
-          NOTES="build60: 黄果下载再修——-11828根因是file://的m3u8不被AVFoundation识别，改为经本地代理以http HLS语义读取分片再导出MP4(产物与存相册链路不变) · 弹幕设置面板新增实时预览，关弹幕也能调、区域/速度/字号/透明度改了立即看见 · 修正显示区域基数，1/4·1/3·半屏·3/4与不遮挡底部控件的标注一致"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build61 回退下载第一版/不支持源标注/弹幕区域与设置修复"
+          NOTES="build61: 黄果下载回退到 build54 第一版实现，并对下载后无法播放的黄果短剧在「下载本集」处标注「当前片源不支持下载」(同弹幕的无源提示) · 修显示区域：行数与行距把所选区域真正铺满，3/4 覆盖到可用区 3/4，预览带同步 · 弹幕设置面板加关闭按钮，横屏固定 large detent 随时可关 · 修横屏转竖屏跳第一集：scrollPosition 改单向，换集交给手势落页"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
             gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
