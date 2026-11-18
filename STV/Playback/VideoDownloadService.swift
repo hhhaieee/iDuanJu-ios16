@@ -243,10 +243,16 @@ enum VideoDownloadService {
         let localPlist = tmpDir.appendingPathComponent("local.m3u8")
         try local.write(to: localPlist, atomically: true, encoding: .utf8)
 
-        // 6) 用系统按本地 m3u8 语义读取并重编码导出。fMP4 / TS 分片都能被正确组装；
-        //    重编码 preset 规避 passthrough 产出空壳（9 KB 只有 moov）的老问题。
+        // 6) 关键：绝不把 file:// 的 m3u8 交给 AVFoundation——iOS16 会判 -11828 FormatNotRecognized。
+        //    改为经 LocalHLSProxy 的 /x/<token>/ 路由以 http HLS 语义读取（在线播放同款、已验证可识别）。
+        //    分片已全部解密落盘，代理只读本地文件，无网络时序问题。
         progress?(0.92)
-        let asset = AVURLAsset(url: localPlist)
+        guard let serveBase = LocalHLSProxy.shared.serveLocalDir(tmpDir),
+              let httpPlist = URL(string: serveBase + "local.m3u8") else {
+            throw DownloadError.exportFailed("无法启动本地导出服务")
+        }
+        defer { LocalHLSProxy.shared.releaseLocalDir(serveBase) }
+        let asset = AVURLAsset(url: httpPlist)
         var last: Error = DownloadError.exportFailed("未知导出错误")
         var exported = false
         for preset in [AVAssetExportPresetHighestQuality, AVAssetExportPresetPassthrough] {
