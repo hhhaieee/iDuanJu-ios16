@@ -65,7 +65,7 @@ final class DanmakuSettings: ObservableObject {
 /// Lanes start right under the top bar (+ tech strip), span the full width, use `area` of the remaining
 /// height, never more than the user's row count, and never reach the bottom controls.
 enum DanmakuRegion {
-    struct Region: Equatable { var top: CGFloat; var rows: Int; var bottomLimit: CGFloat }
+    struct Region: Equatable { var top: CGFloat; var rows: Int; var bottomLimit: CGFloat; var laneSpacing: CGFloat }
     static let topBar: CGFloat = 44
     static func compute(screen: CGSize, safeTop: CGFloat, safeBottom: CGFloat, landscape: Bool, showTech: Bool,
                         area: CGFloat, laneHeight: CGFloat, maxRows: Int) -> Region {
@@ -80,12 +80,13 @@ enum DanmakuRegion {
             bottomLimit = screen.height - safeBottom - 220             // meta + title + progress + icon row
         }
         let usable = max(0, bottomLimit - top)
-        // area 是「可用区」的比例（面板标注：从顶栏下方算起、不遮挡底部控件）。
-        // 旧版用 (screen.height - top) 作基数，选中档位后又被 usable 截断，实际范围远大于标注。
-        // 现在直接按可用区高度取比例，再夹到至少一行、至多用户设定行数。
-        let height = min(usable, max(laneHeight, usable * area))
-        let rows = max(1, min(maxRows, Int(height / max(1, laneHeight))))
-        return Region(top: top, rows: rows, bottomLimit: bottomLimit)
+        // 显示区域 = 弹幕覆盖「可用区」的高度比例（面板标注：顶栏下方起、不遮底部控件）。
+        // 行数由「显示行数」设定决定；行距把这几行均匀铺满所选区域，于是 3/4 就真的覆盖到 3/4，
+        // 而不是旧版那样被行高压成顶部一小条。
+        let regionHeight = max(laneHeight, usable * area)
+        let rows = max(1, min(maxRows, Int(regionHeight / max(1, laneHeight))))
+        let spacing = max(laneHeight, regionHeight / CGFloat(rows))
+        return Region(top: top, rows: rows, bottomLimit: bottomLimit, laneSpacing: spacing)
     }
 }
 
@@ -175,6 +176,8 @@ struct DanmakuOverlay: View {
     var laneTop: CGFloat = 96
     /// Lane count already bounded by area / bottom controls / the user's row setting.
     var laneCount: Int = 4
+    /// Vertical distance between lanes — spread so `rows` lanes fill the selected 显示区域.
+    var laneSpacing: CGFloat = 0
     @State private var raw: [HGDanmaku] = []
     @State private var placed: [DanmakuLayout.Placed] = []
     @State private var key = ""
@@ -250,7 +253,8 @@ struct DanmakuOverlay: View {
             i += 1
             let elapsed = t - p.item.time
             guard elapsed >= 0, elapsed < dur else { continue }
-            let y = topInset + CGFloat(p.lane) * laneHeight
+            let spacing = laneSpacing > 0 ? laneSpacing : laneHeight
+            let y = topInset + CGFloat(p.lane) * spacing
             guard p.lane < rows else { continue }
             let x = W - CGFloat(elapsed / dur) * (W + p.width)
             let merged = p.item.count > 1
@@ -283,26 +287,27 @@ struct DanmakuPreview: View {
     private let previewHeight: CGFloat = 132
 
     private var laneHeight: CGFloat { settings.size.points * 1.55 }
-    /// 预览区里实际渲染的轨道数：与真实播放器一致，按可用高度的 area 比例取，再夹到显示行数。
-    private func laneCount(height: CGFloat) -> Int {
+    /// 预览区渲染行数与行距：与真实播放器一致——行数取"显示行数"，行距把该行数均匀铺满 area 区域。
+    private func lanes(height: CGFloat) -> (count: Int, spacing: CGFloat) {
         let usable = max(0, height - 8)
-        let h = min(usable, max(laneHeight, usable * settings.area.fraction))
-        return max(1, min(settings.rows, Int(h / max(1, laneHeight))))
+        let regionHeight = max(laneHeight, usable * settings.area.fraction)
+        let count = max(1, min(settings.rows, Int(regionHeight / max(1, laneHeight))))
+        let spacing = min(usable, max(laneHeight, regionHeight / CGFloat(count)))
+        return (count, spacing)
     }
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
-            let lh = laneHeight
-            let count = laneCount(height: h)
             let font = settings.size.points
             let dur = settings.speed.duration
+            let layout = lanes(height: h)
             TimelineView(.animation) { tl in
                 ZStack(alignment: .topLeading) {
                     // 预览区底色，示意「弹幕可用范围」
                     RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06))
-                    ForEach(0..<count, id: \.self) { lane in
+                    ForEach(0..<layout.count, id: \.self) { lane in
                         let sample = samples[lane % samples.count]
                         let estWidth = CGFloat(sample.count) * font * 0.95 + 28
                         let period = dur + Double(estWidth / max(1, w)) * dur
@@ -314,7 +319,7 @@ struct DanmakuPreview: View {
                             .foregroundStyle(.white)
                             .opacity(settings.opacity)
                             .shadow(color: .black.opacity(0.8), radius: 2)
-                            .offset(x: x, y: CGFloat(lane) * lh + (lh - font) / 2)
+                            .offset(x: x, y: CGFloat(lane) * layout.spacing + (layout.spacing - font) / 2)
                     }
                 }
                 .clipped()
@@ -328,12 +333,26 @@ struct DanmakuPreview: View {
 
 struct DanmakuSettingsSheet: View {
     @ObservedObject var settings = DanmakuSettings.shared
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var vClass
     var available = true
 
     var body: some View {
+        // 横屏（compact height）下 medium detent 会直接顶满且下拉易被播放器手势吞掉；
+        // 固定 large + 顶部关闭按钮，保证设置项可滚动、随时可退。
+        let detents: Set<PresentationDetent> = vClass == .compact ? [.large] : [.medium, .large]
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("弹幕").font(.title3.bold())
+                HStack {
+                    Text("弹幕").font(.title3.bold())
+                    Spacer()
+                    // 横屏下 sheet 会占满屏幕、下拉关闭又与播放器手势冲突，提供显式关闭按钮随时退出。
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 24))
+                            .foregroundStyle(STVTheme.secondary)
+                    }
+                    .accessibilityLabel("关闭弹幕设置")
+                }
                 if !available {
                     Text("当前片源不支持弹幕（仅红果）").font(.footnote).foregroundStyle(STVTheme.secondary)
                 }
@@ -396,6 +415,6 @@ struct DanmakuSettingsSheet: View {
             .tint(STVTheme.accent)
             .padding(20).padding(.top, 8)
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents(detents)
     }
 }
