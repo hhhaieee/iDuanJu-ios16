@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build59 下载架构重写/弹幕设置即时生效/精简倍速"
-          NOTES="build59: 黄果下载彻底重写——分片独立落盘+本地m3u8+系统按HLS语义重编码导出，修fMP4分片拼接导致的-11828格式无法识别 · 弹幕设置加全局revision信号+去掉暂停停帧，区域/速度/字号改动即时生效 · 播放速度删除0.5x/0.75x/2.5x保留常用档位"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build60 下载改本地http导出/弹幕实时预览/显示区域修正"
+          NOTES="build60: 黄果下载再修——-11828根因是file://的m3u8不被AVFoundation识别，改为经本地代理以http HLS语义读取分片再导出MP4(产物与存相册链路不变) · 弹幕设置面板新增实时预览，关弹幕也能调、区域/速度/字号/透明度改了立即看见 · 修正显示区域基数，1/4·1/3·半屏·3/4与不遮挡底部控件的标注一致"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
             gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
