@@ -68,10 +68,6 @@ struct PlayerScreen: View {
     /// 横屏转竖屏时 portraitFeed 重新挂载、ScrollView 从 y=0 起步滚到 co.current 的过渡态。
     /// anchoring 期间完全禁用 settle，等 y 真正到达目标页再启用，避免把选集误拉回第一集。
     @State private var feedAnchoring = false
-    /// iOS17 scrollPosition 写回守卫：横屏切竖屏 portraitFeed 重挂载时 ScrollView 从顶部起步，
-    /// 双向绑定会立刻把 id=0 写回 co.select(0) 导致跳回第一集重播。挂载后短暂屏蔽写回，
-    /// 让 get(co.current) 驱动滚动停在目标集；0.6s 后放开恢复正常上下滑切集。
-    @State private var scrollWriteGuard = false
     /// Running double-tap seek (+10/+20/… s) and which side it is on; drives the side bubble.
     @State private var seekRun: (total: Int, at: Date)?
     /// 屏幕左右滑动调进度：t0 = 起始时间, cur = 当前预览时间, active 控制气泡显示。
@@ -365,7 +361,8 @@ struct PlayerScreen: View {
         // revision 是任意设置变化都会递增的唯一版本；把它纳入 key 确保设置面板一改动
         // 就强制重建覆盖层，绕开「值未变 / TimelineView 暂停停帧 / Canvas 缓存」导致的漏刷新。
         let dmKey = "\(danmaku.revision)|\(danmaku.area.rawValue)|\(danmaku.rows)|\(danmaku.speed.rawValue)|\(danmaku.size.rawValue)|\(danmaku.merge)|\(danmaku.likesPriority)|\(Int(danmaku.opacity * 100))"
-        return DanmakuOverlay(co: co, seriesId: series.seriesId, vid: co.episodes[i].vid, landscape: landscape, laneTop: r.top, laneCount: r.rows)
+        return DanmakuOverlay(co: co, seriesId: series.seriesId, vid: co.episodes[i].vid, landscape: landscape,
+                              laneTop: r.top, laneCount: r.rows, laneSpacing: r.laneSpacing)
             .id(dmKey)
             .frame(width: full.width, height: full.height)
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 14 / max(1, full.width)),
@@ -374,10 +371,10 @@ struct PlayerScreen: View {
             .allowsHitTesting(false)
             .overlay(alignment: .topLeading) {
                 // Invisible marker so UI tests can check the lane region (top / rows / bottom limit).
-                Color.clear.frame(width: full.width, height: max(1, CGFloat(r.rows) * DanmakuOverlay.laneHeight(danmaku)))
+                Color.clear.frame(width: full.width, height: max(1, CGFloat(r.rows - 1) * r.laneSpacing + DanmakuOverlay.laneHeight(danmaku)))
                     .offset(y: r.top - DanmakuOverlay.laneHeight(danmaku) / 2)
                     .accessibilityElement().accessibilityIdentifier("player.danmaku.region")
-                    .accessibilityValue("top=\(Int(r.top)) rows=\(r.rows) limit=\(Int(r.bottomLimit))")
+                    .accessibilityValue("top=\(Int(r.top)) rows=\(r.rows) spacing=\(Int(r.laneSpacing)) limit=\(Int(r.bottomLimit))")
                     .allowsHitTesting(false)
             }
     }
@@ -398,13 +395,11 @@ struct PlayerScreen: View {
             .scrollIndicators(.hidden)
             .scrollPosition(id: Binding(
                 get: { co.current },
-                set: { new in guard !scrollWriteGuard else { return }; co.select(new) }
+                // 单向：绝不把 ScrollView 的 id 写回 co。横竖屏切换 / 初始化时 ScrollView 从 y=0
+                // 起步，双向绑定会把 id=0 写回 co.select(0) 导致跳回第一集重播。用户滑动切集由
+                // 下方 compatScrollFeedback 的落页 settle 逻辑（相邻页 co.select）负责，不依赖此 set。
+                set: { _ in }
             ))
-            .onAppear {
-                // 切屏重挂载时先屏蔽 scrollPosition 的顶部写回，等 get 驱动滚动落到目标集后放开。
-                scrollWriteGuard = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { scrollWriteGuard = false }
-            }
             .compatScrollFeedback(onOffset: { feedScrollY = $0 }, onSettled: { feedSettled = $0; releaseHeldIfSettled() })
             .compatSelectionFeedback(trigger: co.current)
             .onChange(of: co.readyIndex) { _ in releaseHeldIfSettled() }
@@ -953,17 +948,20 @@ struct PlayerScreen: View {
                 TrackPopover(title: "字幕", options: co.subtitleOptions, selected: co.subtitleSelected, allowsOff: true,
                              emptyText: "当前视频没有可选字幕") { o in co.selectSubtitle(o); closePanel() }
                 Divider().overlay(.white.opacity(0.12)).padding(.horizontal, 12).padding(.vertical, 4)
+                // 黄果等 HLS 源下载后无法播放：与弹幕"当前片源不支持弹幕"一致，直接标注不支持，不给出错入口。
+                let downloadSupported = series.source != .huangguo
                 Button {
+                    guard downloadSupported else { showOSD("当前片源不支持下载"); return }
                     co.downloadCurrentEpisode()
                     closePanel()
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: co.isDownloading ? "arrow.down.circle.dotted" : "arrow.down.circle")
-                            .font(.system(size: 16)).foregroundStyle(STVTheme.accent).frame(width: 22)
+                            .font(.system(size: 16)).foregroundStyle(downloadSupported ? STVTheme.accent : STVTheme.secondary).frame(width: 22)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(co.isDownloading ? "正在下载本集…" : "下载本集")
-                                .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                            Text("下载后可离线观看，也能存到手机相册")
+                            Text(co.isDownloading ? "正在下载本集…" : (downloadSupported ? "下载本集" : "当前片源不支持下载"))
+                                .font(.system(size: 14, weight: .semibold)).foregroundStyle(downloadSupported ? .white : STVTheme.secondary)
+                            Text(downloadSupported ? "下载后可离线观看，也能存到手机相册" : "黄果短剧暂不支持离线下载")
                                 .font(.caption).foregroundStyle(.white.opacity(0.55))
                         }
                         Spacer()
@@ -972,7 +970,7 @@ struct PlayerScreen: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).disabled(co.isDownloading)
-                .accessibilityLabel("下载本集").accessibilityIdentifier("player.download")
+                .accessibilityLabel(downloadSupported ? "下载本集" : "当前片源不支持下载").accessibilityIdentifier("player.download")
             }
         case .episodes:
             EpisodesPopover(episodes: co.episodes, current: co.current ?? 0,
