@@ -41,6 +41,8 @@ struct PlayerScreen: View {
     @State private var showChrome = true
     @State private var lastInteraction = Date()
     /// 切集/自动连播时抑制中心大播放按钮，直到新集 ready 后用户显式交互；避免切换瞬间按钮闪现。
+    /// 仅控制「中心播放/暂停按钮」在新集加载期间是否显示（避免加载中闪现）。
+    /// 不再参与控制栏显隐判断——单击/控制栏响应统一由 showChrome 驱动，避免状态残留导致点屏幕无反应。
     @State private var centerSuppressed = false
     /// 记录是否已完成首次加载，用于区分「首载」与「切集」（iOS 16 单参数 onChange 无 old 值）。
     @State private var didInitialLoad = false
@@ -1038,7 +1040,10 @@ struct PlayerScreen: View {
     private func handleTap() {
         if panel != nil { closePanel(); return }
         if locked { flashChrome(); return }
-        if showChrome && controlsVisible && !centerSuppressed { withAnimation(.easeOut(duration: 0.2)) { showChrome = false } }
+        // 单击的显隐只由 showChrome 决定，不再掺入 centerSuppressed：
+        // 后者只负责「中心播放按钮在新集加载期间是否显示」，不该干扰整条控制栏的触摸响应，
+        // 否则切集后 centerSuppressed 残留 true 时点击会永远走 else 再 flash，表现为「点了没反应」。
+        if showChrome && controlsVisible { withAnimation(.easeOut(duration: 0.2)) { showChrome = false } }
         else { flashChrome() }
     }
 
@@ -1541,7 +1546,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             tapped(at: g.location(in: view), in: view)
         }
 
-        /// Single tap now; second tap within 0.3 s near the first = double tap; side streak keeps seeking.
+        /// Single tap now; second tap within 0.4 s near the first = double tap; side streak keeps seeking.
+        /// 放宽判定窗口（0.3s→0.4s、x 差 0.2→0.28）：手指稍慢或略抖也不至于被拆成两次单击。
         private func tapped(at p: CGPoint, in view: UIView) {
             let x = p.x / max(1, view.bounds.width), now = Date()
             let side: Bool? = x < 1.0 / 3 ? false : (x > 2.0 / 3 ? true : nil)
@@ -1551,7 +1557,7 @@ struct PlayerTouchCatcher: UIViewRepresentable {
                 onDoubleTap(x); return
             }
             streak = nil
-            if let l = lastTap, now.timeIntervalSince(l.at) < 0.3, abs(l.x - x) < 0.2 {
+            if let l = lastTap, now.timeIntervalSince(l.at) < 0.4, abs(l.x - x) < 0.28 {
                 lastTap = nil
                 if let side { streak = (now.addingTimeInterval(0.7), side) }
                 onDoubleTap(x); return
@@ -1718,6 +1724,18 @@ struct PlayerTouchCatcher: UIViewRepresentable {
                 && otherGestureRecognizer is UIPanGestureRecognizer
         }
 
+        /// 手势主轴判定：优先用累计位移 translation（手指起落全过程稳定），
+        /// 仅当位移还很小时（< 6pt，刚开始）才退回瞬时 velocity，避免起手抖动抢错手势。
+        private func axis(_ pan: UIPanGestureRecognizer, in view: UIView) -> (h: CGFloat, v: CGFloat) {
+            let t = pan.translation(in: view)
+            var ax = abs(t.x), ay = abs(t.y)
+            if max(ax, ay) < 6 {
+                let vel = pan.velocity(in: view)
+                ax = abs(vel.x); ay = abs(vel.y)
+            }
+            return (ax, ay)
+        }
+
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let view else { return true }
             let x = gestureRecognizer.location(in: view).x
@@ -1725,21 +1743,21 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             if x < view.edgeBackWidth { return false }
             if gestureRecognizer === adjustPan, let pan = gestureRecognizer as? UIPanGestureRecognizer {
                 guard !speedMode, Coordinator.side(pan, in: view, landscape: landscape) != nil else { return false }
-                let v = pan.velocity(in: view)
-                return abs(v.y) > abs(v.x) * 1.2
+                let a = axis(pan, in: view)
+                return a.v > a.h * 1.15
             }
             if gestureRecognizer === epPan, let pan = gestureRecognizer as? UIPanGestureRecognizer {
                 // 切集只在中间区域生效：两侧边缘让给亮度/音量，避免竖屏切集与侧滑抢手势。
                 guard !speedMode, Coordinator.side(pan, in: view, landscape: landscape) == nil else { return false }
                 // 垂直为主才切集，水平交给 seekPan。
-                let v = pan.velocity(in: view)
-                return abs(v.y) >= abs(v.x)
+                let a = axis(pan, in: view)
+                return a.v >= a.h
             }
             if gestureRecognizer === seekPan, let pan = gestureRecognizer as? UIPanGestureRecognizer {
                 // 进度手势只在中间区域、水平为主时接管；锁屏 / 倍速模式下禁用。
                 guard !speedMode, !locked, Coordinator.side(pan, in: view, landscape: landscape) == nil else { return false }
-                let v = pan.velocity(in: view)
-                return abs(v.x) > abs(v.y) * 1.2
+                let a = axis(pan, in: view)
+                return a.h > a.v * 1.15
             }
             return true
         }

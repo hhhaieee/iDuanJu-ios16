@@ -95,6 +95,14 @@ enum DanmakuLayout {
         let badge: String
         let lane: Int
         let width: CGFloat
+        // 预排版缓存：在 relayout（文本/字号/颜色确定）时一次性算好，
+        // Canvas 每帧只做 ctx.resolve + draw，不再逐帧解析 hex、构造字体/Text、测量宽度。
+        let color: Color
+        let fnt: Font
+        let coloredText: Text
+        let shadowText: Text
+        let textWidth: CGFloat
+        let badgeText: Text?
         var id: String { item.id }
     }
 
@@ -142,7 +150,24 @@ enum DanmakuLayout {
             if free >= 0 { tracks[free].append(c) }
         }
         var out: [Placed] = []
-        for k in 0..<rows { for c in tracks[k] { out.append(Placed(item: c.item, text: c.text, badge: c.badge, lane: k, width: c.width)) } }
+        for k in 0..<rows {
+            for c in tracks[k] {
+                let merged = c.item.count > 1
+                let weight: Font.Weight = (merged || c.item.likes >= 50) ? .bold : .semibold
+                let color = Color(hex: c.item.color) ?? .white
+                let fnt = Font.system(size: font, weight: weight)
+                let coloredText = Text(c.text).font(fnt).foregroundColor(color)
+                let shadowText = Text(c.text).font(fnt).foregroundColor(.black)
+                let badgeText: Text? = merged
+                    ? Text(c.badge).font(.system(size: font * 0.8, weight: .heavy)).foregroundColor(STVTheme.accentWarm)
+                    : nil
+                // badge 定位用估算宽度（与 C.width 同源），避免每帧 text.measure。
+                let textWidth = estimateWidth(c.text, font: font)
+                out.append(Placed(item: c.item, text: c.text, badge: c.badge, lane: k, width: c.width,
+                                  color: color, fnt: fnt, coloredText: coloredText, shadowText: shadowText,
+                                  textWidth: textWidth, badgeText: badgeText))
+            }
+        }
         return out.sorted { $0.item.time < $1.item.time }
     }
 }
@@ -236,19 +261,16 @@ struct DanmakuOverlay: View {
             let y = topInset + CGFloat(p.lane) * spacing
             guard p.lane < rows else { continue }
             let x = W - CGFloat(elapsed / dur) * (W + p.width)
-            let merged = p.item.count > 1
-            let weight: Font.Weight = (merged || p.item.likes >= 50) ? .bold : .semibold
-            let color = Color(hex: p.item.color) ?? .white
-            let fnt = Font.system(size: font, weight: weight)
+            // 全部使用 relayout 时预排版好的 Text / 字体 / 颜色 / 宽度：
+            // 每帧只剩 ctx.resolve + ctx.draw，不再重复解析 hex、构造 Font/Text、measure 宽度。
             // 阴影：黑色底字向右下偏移 1pt，替代整屏模糊滤镜。
-            let shadow = ctx.resolve(Text(p.text).font(fnt).foregroundColor(.black))
+            let shadow = ctx.resolve(p.shadowText)
             ctx.draw(shadow, at: CGPoint(x: x + 0.8, y: y + 1), anchor: .leading)
-            let text = ctx.resolve(Text(p.text).font(fnt).foregroundColor(color))
+            let text = ctx.resolve(p.coloredText)
             ctx.draw(text, at: CGPoint(x: x, y: y), anchor: .leading)
-            if merged {
-                let tw = text.measure(in: CGSize(width: 2000, height: 100)).width
-                let badge = ctx.resolve(Text(p.badge).font(.system(size: font * 0.8, weight: .heavy)).foregroundColor(STVTheme.accentWarm))
-                ctx.draw(badge, at: CGPoint(x: x + tw + 4, y: y), anchor: .leading)
+            if let badgeText = p.badgeText {
+                let badge = ctx.resolve(badgeText)
+                ctx.draw(badge, at: CGPoint(x: x + p.textWidth + 4, y: y), anchor: .leading)
             }
         }
     }

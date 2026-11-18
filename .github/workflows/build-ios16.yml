@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build70 弹幕卡片紧凑化 + 插件文件夹导入"
-          NOTES="build70: ① 横屏弹幕设置卡片压紧间距（主6/组3/预览框6、开关并入标题行），底部留出进度条区不碰进度条，全部设置项一屏放下可点；整卡下拉手势移除避免与滚动冲突。② 插件「从文件导入」改为文件夹扫描模式（借鉴备份与恢复）：文档目录建 PluginImports，放入 .idjplugin 即可扫描列出点选安装，保留系统文件选择器备选"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build71 播放器手势稳定性优化 + 弹幕渲染提速"
+          NOTES="build71: ① 滑动方向判定由瞬时速度改为累计位移为主（位移<6pt才用速度兜底），横滑调进度/竖滑切集/边缘亮度音量不再抢手势；② 双击判定放宽（时间窗0.3→0.4s、横向偏差0.2→0.28）更跟手；③ 控制栏单击显隐只由 showChrome 驱动，centerSuppressed 收窄为仅管中心按钮加载期显隐，消除「点屏幕没反应」状态残留；④ 弹幕渲染提速：字号/颜色/Text/badge 宽度在 relayout 时预排版缓存，Canvas 每帧只 resolve+draw，不再逐帧解析hex/构造字体/measure"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
