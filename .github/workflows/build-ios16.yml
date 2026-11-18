@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build64 静态单行弹幕预览/紧凑卡片/去全屏阴影滤镜修卡顿"
-          NOTES="build64: 弹幕设置卡片对标主流播放器——竖屏半屏(medium)紧凑卡片，效果预览改为固定单行示例字「这是一条弹幕效果预览🚀」，仅随字号/不透明度变化不滚动 · 修「开着弹幕按钮时灵时不灵」：去掉弹幕层每秒 30 次的全屏阴影模糊滤镜(改为每条弹幕 1pt 黑底字阴影)，播放暂停时冻结弹幕重绘，面板内 60fps 滚动预览移除"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build65 横屏弹幕设置面板留出播放器区域"
+          NOTES="build65: 弹幕设置面板横屏也默认半屏(medium)卡片，留出上方播放画面、可上拉全屏（此前横屏为近全高卡片）"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

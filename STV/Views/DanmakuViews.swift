@@ -287,12 +287,11 @@ struct DanmakuPreview: View {
 struct DanmakuSettingsSheet: View {
     @ObservedObject var settings = DanmakuSettings.shared
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.verticalSizeClass) private var vClass
     var available = true
 
     var body: some View {
-        // 对标主流播放器：竖屏半屏卡片（medium），横屏近全高卡片；内容行距收紧，所有设置一屏放下。
-        let detents: Set<PresentationDetent> = vClass == .compact ? [.large] : [.medium, .large]
+        // 竖屏、横屏都默认半屏卡片（medium），横屏留出上方播放画面、可上拉全屏；内容行距收紧，所有设置一屏放下。
+        let detents: Set<PresentationDetent> = [.medium, .large]
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
@@ -300,7 +299,7 @@ struct DanmakuSettingsSheet: View {
                         .foregroundStyle(STVTheme.accent)
                     Text("弹幕设置").font(.headline)
                     Spacer()
-                    // 横屏下 sheet 占满屏幕、下拉关闭又与播放器手势冲突，提供显式关闭按钮随时退出。
+                    // 下拉关闭手势与播放器手势可能冲突，保留显式关闭按钮随时退出。
                     Button { dismiss() } label: {
                         Image(systemName: "xmark.circle.fill").font(.system(size: 22))
                             .foregroundStyle(STVTheme.secondary)
