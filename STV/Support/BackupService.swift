@@ -88,6 +88,54 @@ enum BackupService {
         return "黑果备份-\(df.string(from: Date())).\(fileExtension)"
     }
 
+    // MARK: - Backup folder (App 内自建导入/导出列表，绕开侧载下失效的 UIDocumentPicker)
+
+    /// 备份文件目录：位于 App 文档共享目录下，用户在「文件」App → 我的 iPhone → 黑果夜剧 → Backups 可见。
+    static var backupDir: URL {
+        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("Backups", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    struct BackupFile: Identifiable {
+        let url: URL
+        var id: String { url.lastPathComponent }
+        var name: String { url.lastPathComponent }
+        var size: Int64 {
+            (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+        }
+        var date: Date {
+            (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
+        }
+    }
+
+    /// 列出备份目录（含文档根目录）下所有备份文件，按修改时间倒序。
+    static func listFiles() -> [BackupFile] {
+        let fm = FileManager.default
+        var urls: [URL] = []
+        for dir in [backupDir, fm.urls(for: .documentDirectory, in: .userDomainMask)[0]] {
+            guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for u in items {
+                let ext = u.pathExtension.lowercased()
+                guard ext == fileExtension || ext == "json" else { continue }
+                guard !urls.contains(where: { $0.lastPathComponent == u.lastPathComponent }) else { continue }
+                urls.append(u)
+            }
+        }
+        return urls.map(BackupFile.init).sorted { $0.date > $1.date }
+    }
+
+    /// 生成备份数据并写入备份目录，返回落盘的文件 URL。
+    @discardableResult
+    static func exportToBackupDir() -> URL? {
+        let data = makeBackupData()
+        let url = backupDir.appendingPathComponent(suggestedFilename())
+        return (try? data.write(to: url, options: .atomic)) != nil ? url : nil
+    }
+
     // MARK: - Restore
 
     @discardableResult
@@ -176,6 +224,20 @@ struct UIKitDocumentExporter: UIViewControllerRepresentable {
             onFinish(.failure(CancellationError()))
         }
     }
+}
+
+/// 系统分享面板：把备份文件分享到「文件」App / 其他 App / 存储到云端。
+/// 用 UIActivityViewController 而非 UIDocumentPicker，绕开 TrollStore 侧载下选择器失效的问题。
+struct BackupShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    var onFinish: (() -> Void)? = nil
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let vc = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        vc.completionWithItemsHandler = { _, _, _, _ in onFinish?() }
+        return vc
+    }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 /// App 入口用：外部「文件」App 点开 .idjbackup 时接收 URL → 恢复 → 弹结果提示。
