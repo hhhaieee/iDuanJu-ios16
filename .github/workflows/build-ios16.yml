@@ -62,11 +62,11 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build57 画中画解锁/左右滑进度/横屏亮度音量/备份选择"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build58 备份自建列表/下载时间戳/弹幕设置/横竖屏/音轨音量"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes "build57: 画中画撤销恢复播放改退出时自动解锁 · 删除暂停旁快退/快进按钮 · 新增屏幕左右滑动调进度(中间气泡提示) · 横屏左边缘亮度/右边缘音量/中间切集 · 备份放宽到public.item修复置灰选不了"
+            gh release edit "$TAG" --title "$TITLE" --notes "build58: 备份改App内自建文件列表(绕开侧载失效的系统选择器) · 黄果下载重打时间戳修导出失败+真实错误透传 · 弹幕设置变更强制重建overlay实时生效 · 修横屏转竖屏跳回第一集 · 删除音轨面板音量条"
           else
             gh release create "$TAG" "dist/$ASSET" --title "$TITLE" \
-              --notes "build57: 画中画撤销恢复播放改退出时自动解锁 · 删除暂停旁快退/快进按钮 · 新增屏幕左右滑动调进度(中间气泡提示) · 横屏左边缘亮度/右边缘音量/中间切集 · 备份放宽到public.item修复置灰选不了"
+              --notes "build58: 备份改App内自建文件列表(绕开侧载失效的系统选择器) · 黄果下载重打时间戳修导出失败+真实错误透传 · 弹幕设置变更强制重建overlay实时生效 · 修横屏转竖屏跳回第一集 · 删除音轨面板音量条"
           fi
