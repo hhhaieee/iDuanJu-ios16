@@ -8,9 +8,10 @@ struct ProfileView: View {
     @ObservedObject private var downloads = TGDownloads.shared
     @EnvironmentObject private var appearance: AppearanceModel
     @State private var showBackup = false
-    @State private var showExport = false
-    @State private var exportURL: URL?
-    @State private var showImport = false
+    @State private var backupFiles: [BackupService.BackupFile] = []
+    @State private var sharingURL: URL?
+    @State private var restoringFile: BackupService.BackupFile?
+    @State private var isExporting = false
 
     var body: some View {
         ScrollView {
@@ -115,68 +116,97 @@ struct ProfileView: View {
 
     private var backupPanel: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("把本机的收藏、观看记录、片源开关与排序、插件（含苹果CMS）、红果设备身份、小说书架等数据打包备份。换版本或重装后导入即可恢复。")
-                    .font(.subheadline).foregroundStyle(STVTheme.secondary)
-                Button {
-                    let tmp = FileManager.default.temporaryDirectory
-                        .appendingPathComponent(BackupService.suggestedFilename())
-                    if (try? BackupService.makeBackupData().write(to: tmp, options: .atomic)) != nil {
-                        exportURL = tmp
-                        showExport = true
-                    } else {
-                        message = "生成备份文件失败，请重试。"
-                    }
-                } label: {
-                    Label("导出备份", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).controlSize(.large)
-                Button { showImport = true } label: {
-                    Label("导入恢复", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
-                }.buttonStyle(.bordered).controlSize(.large)
-                Text("恢复会覆盖同名数据，建议先导出一份当前备份。代理地址与登录态不在备份范围；恢复后需重启 App 生效。")
-                    .font(.caption).foregroundStyle(STVTheme.secondary)
-                Spacer()
-            }
-            .padding(20)
-            .background(STVTheme.bg.ignoresSafeArea())
-            .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
-            // fileExporter / fileImporter 必须挂在 sheet 内部：iOS 不允许同一个 view
-            // 在 sheet 已 present 时再 present 第二个 modal，挂在外层会导致按钮点了没反应。
-            .sheet(isPresented: $showExport) {
-                if let url = exportURL {
-                    UIKitDocumentExporter(url: url, asCopy: true) { result in
-                        showExport = false
-                        switch result {
-                        case .success: message = "备份已导出到「文件」App；请妥善保存。"
-                        case .failure(let e):
-                            if !(e is CancellationError) { message = "导出失败，请重试。" }
+            List {
+                Section {
+                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份。备份保存在本 App 的「Backups」文件夹，可在「文件」App → 我的 iPhone → 黑果夜剧 → Backups 里查看、取出或放入备份文件。")
+                        .font(.caption).foregroundStyle(STVTheme.secondary)
+                }
+                Section {
+                    Button {
+                        isExporting = true
+                        // 后台生成，避免主线程同步编码大量插件文件导致白屏卡顿。
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            let url = BackupService.exportToBackupDir()
+                            DispatchQueue.main.async {
+                                isExporting = false
+                                backupFiles = BackupService.listFiles()
+                                if url != nil {
+                                    message = "备份已生成，见下方列表。可点右侧分享按钮存到「文件」App 长期保存。"
+                                } else {
+                                    message = "生成备份文件失败，请重试。"
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Label("导出备份", systemImage: "square.and.arrow.up")
+                            Spacer()
+                            if isExporting { ProgressView() }
                         }
                     }
                 }
-            }
-            // 放宽到 public.item（文件系统顶层类型，任何文件都符合）：TrollStore 侧载时自定义 UTI
-            // 无法注册进系统 LaunchServices，[.data,.json] 会让 .idjbackup 置灰选不了。
-            // 让所有文件可选，再在回调里按扩展名校验，和 onOpenURL 的处理保持一致。
-            .fileImporter(isPresented: $showImport, allowedContentTypes: [.item]) { result in
-                switch result {
-                case .success(let url):
-                    let ext = url.pathExtension.lowercased()
-                    guard ext == BackupService.fileExtension || ext == "json" else {
-                        message = "请选择黑果备份文件（.idjbackup）。"
-                        return
-                    }
-                    let accessed = url.startAccessingSecurityScopedResource()
-                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                    if let data = try? Data(contentsOf: url) {
-                        let r = BackupService.restore(from: data)
-                        message = r.message
+                Section("备份文件（点选恢复）") {
+                    if backupFiles.isEmpty {
+                        Text("暂无备份文件。点上方「导出备份」生成，或从「文件」App 把 .idjbackup 文件放入 Backups 文件夹后返回此页。")
+                            .font(.caption).foregroundStyle(STVTheme.secondary)
                     } else {
-                        message = "无法读取所选文件。"
+                        ForEach(backupFiles) { f in
+                            HStack {
+                                Button {
+                                    restoringFile = f
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(f.name).font(.subheadline).lineLimit(1)
+                                        Text("\(f.size / 1024) KB · \(f.date.formatted(date: .abbreviated, time: .shortened))")
+                                            .font(.caption).foregroundStyle(STVTheme.secondary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                Spacer()
+                                Button { sharingURL = f.url } label: {
+                                    Image(systemName: "square.and.arrow.up").foregroundStyle(STVTheme.accent)
+                                }.buttonStyle(.borderless)
+                                Button {
+                                    try? FileManager.default.removeItem(at: f.url)
+                                    backupFiles = BackupService.listFiles()
+                                } label: {
+                                    Image(systemName: "trash").foregroundStyle(.red)
+                                }.buttonStyle(.borderless)
+                            }
+                        }
+                        .onDelete { idx in
+                            for i in idx { try? FileManager.default.removeItem(at: backupFiles[i].url) }
+                            backupFiles = BackupService.listFiles()
+                        }
                     }
-                case .failure:
-                    message = "未选择文件或读取失败。"
                 }
+                Section {
+                    Text("恢复会覆盖同名数据，建议先导出一份当前备份。代理地址与登录态不在备份范围；恢复后需重启 App 生效。")
+                        .font(.caption).foregroundStyle(STVTheme.secondary)
+                }
+            }
+            .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
+            .onAppear { backupFiles = BackupService.listFiles() }
+            .confirmationDialog("恢复此备份？将覆盖当前同名数据。", isPresented: Binding(
+                get: { restoringFile != nil },
+                set: { if !$0 { restoringFile = nil } }
+            )) {
+                Button("恢复", role: .destructive) {
+                    if let f = restoringFile, let data = try? Data(contentsOf: f.url) {
+                        message = BackupService.restore(from: data).message
+                    } else {
+                        message = "无法读取所选备份文件。"
+                    }
+                    restoringFile = nil
+                }
+                Button("取消", role: .cancel) { restoringFile = nil }
+            }
+            .sheet(isPresented: Binding(
+                get: { sharingURL != nil },
+                set: { if !$0 { sharingURL = nil } }
+            )) {
+                if let url = sharingURL { BackupShareSheet(url: url) { sharingURL = nil } }
             }
             .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("好", role: .cancel) { message = nil }
@@ -184,7 +214,7 @@ struct ProfileView: View {
                 Text(message ?? "")
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     static var versionText: String {
