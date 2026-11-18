@@ -895,12 +895,12 @@ struct PlayerScreen: View {
             switch p {
             case .episodes: return landscape ? 380 : full.width - 24
             case .rates: return landscape ? 230 : 220
-            case .danmaku: return full.width - 24
+            case .danmaku: return landscape ? full.width / 2 : full.width - 24
             default: return 270
             }
         }()
         let maxH: CGFloat = isDanmaku
-            ? full.height * 0.5
+            ? (landscape ? full.height : full.height * 0.5)
             : (landscape ? (p == .episodes ? 270 : full.height - 44 - 110)
                          : min(p == .episodes ? 372 : 420, full.height * 0.5))
         let body = popoverContent(p)
@@ -911,13 +911,19 @@ struct PlayerScreen: View {
             .gesture(DragGesture(minimumDistance: 24).onEnded { v in if v.translation.height > 60 { closePanel() } })
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("player.popover.\(p.rawValue)")
-            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: isDanmaku || !landscape ? .bottomLeading : .topTrailing)))
-        if isDanmaku || !landscape {
-            // 弹幕横竖屏都底部弹出、全宽半屏，露出上方播放画面（与竖屏观感一致）。
+            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: landscape ? .topTrailing : .bottomLeading)))
+        if isDanmaku && landscape {
+            // 横屏弹幕：占右半边（横向一半）、近全高，露出左半边播放器。
+            HStack(spacing: 0) { Spacer(minLength: 0); body }
+                .padding(.vertical, 12).padding(.trailing, 12)
+                .frame(width: full.width, height: full.height)
+        } else if !landscape {
+            // 竖屏弹幕及其它面板：底部弹出（弹幕全宽半屏）。
             VStack { Spacer(); HStack { body; Spacer(minLength: 0) } }
                 .padding(.horizontal, 12).padding(.bottom, max(0, ins.bottom - 6) + 44 + 12)
                 .frame(width: full.width, height: full.height)
         } else {
+            // 横屏其它面板：右上角。
             VStack { HStack { Spacer(); body }; Spacer() }
                 .padding(.top, p == .episodes ? 14 : 44).padding(.trailing, 48)
                 .frame(width: full.width, height: full.height)

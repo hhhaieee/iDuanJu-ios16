@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build67 弹幕设置迁移到播放器浮层横竖屏底部半屏"
-          NOTES="build67: 弹幕设置面板从系统 sheet 迁移到播放器自定义浮层（与倍速/画质/选集同机制），横竖屏统一底部弹出、全宽半屏，露出上方播放画面，彻底修复横屏下系统 sheet 被强制全屏的问题"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build68 横屏弹幕面板占右半边露出播放器"
+          NOTES="build68: 弹幕设置面板迁移到播放器自定义浮层；竖屏底部全宽半屏、横屏占右半边（横向一半）露出左半边播放器，彻底修复横屏下系统 sheet 被强制全屏的问题"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
