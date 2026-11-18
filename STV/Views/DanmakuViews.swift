@@ -37,6 +37,9 @@ final class DanmakuSettings: ObservableObject {
     @Published var size: Size { didSet { save() } }
     /// Live status of the current episode (not persisted).
     @Published var status = ""
+    /// 设置变更信号：任意一项设置变化都递增，供播放层强制重建弹幕覆盖层。
+    /// 单纯依赖各 rawValue 拼 key 在「值未变/Canvas 停帧」时会漏刷新，这里给出唯一版本。
+    @Published var revision = 0
 
     private let d = UserDefaults.standard
     private init() {
@@ -53,6 +56,7 @@ final class DanmakuSettings: ObservableObject {
         d.set(enabled, forKey: "stv.dm.enabled"); d.set(area.rawValue, forKey: "stv.dm.area"); d.set(merge, forKey: "stv.dm.merge"); d.set(likesPriority, forKey: "stv.dm.likes")
         d.set(rows, forKey: "stv.dm.rows"); d.set(opacity, forKey: "stv.dm.opacity")
         d.set(speed.rawValue, forKey: "stv.dm.speed"); d.set(size.rawValue, forKey: "stv.dm.size")
+        revision &+= 1
     }
 }
 
@@ -178,7 +182,9 @@ struct DanmakuOverlay: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: co.paused || placed.isEmpty)) { timeline in
+            // 暂停时不能停帧：否则设置面板改区域/速度/字号后 Canvas 不再重绘，表现为「设置无效」。
+            // 弹幕位置取自 co.playhead，暂停时它不动，画面自然静止；这里只在无弹幕时省电。
+            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: placed.isEmpty)) { timeline in
                 // Reading timeline.date inside the renderer forces a redraw every animation frame.
                 let frame = timeline.date
                 Canvas { ctx, canvas in
