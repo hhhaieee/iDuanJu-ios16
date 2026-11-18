@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build63 弹幕卡片紧凑化/面板期间冻结弹幕重绘修卡顿"
-          NOTES="build63: 弹幕设置卡片按参考样式紧凑化——竖屏约 520pt 卡片(标题+关闭按钮+四组分段控件+96pt 预览)，去掉冗长说明文字 · 修「开着弹幕调设置卡顿、按钮时灵时不灵」：面板打开期间冻结播放器弹幕逐帧重绘(关闭面板自动恢复)，弹幕层日常帧率 60→30fps 降低渲染开销"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build64 静态单行弹幕预览/紧凑卡片/去全屏阴影滤镜修卡顿"
+          NOTES="build64: 弹幕设置卡片对标主流播放器——竖屏半屏(medium)紧凑卡片，效果预览改为固定单行示例字「这是一条弹幕效果预览🚀」，仅随字号/不透明度变化不滚动 · 修「开着弹幕按钮时灵时不灵」：去掉弹幕层每秒 30 次的全屏阴影模糊滤镜(改为每条弹幕 1pt 黑底字阴影)，播放暂停时冻结弹幕重绘，面板内 60fps 滚动预览移除"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
