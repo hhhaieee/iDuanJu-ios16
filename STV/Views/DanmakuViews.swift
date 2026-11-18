@@ -287,11 +287,12 @@ struct DanmakuPreview: View {
 struct DanmakuSettingsSheet: View {
     @ObservedObject var settings = DanmakuSettings.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var vClass
     var available = true
 
     var body: some View {
-        // 竖屏、横屏都默认半屏卡片（medium），横屏留出上方播放画面、可上拉全屏；内容行距收紧，所有设置一屏放下。
-        let detents: Set<PresentationDetent> = [.medium, .large]
+        // 竖屏、横屏都固定半屏、不可上拉全屏；横屏固定 50% 露出视频，避免设备旋转时被系统拉到全屏。
+        let detents: Set<PresentationDetent> = vClass == .compact ? [.fraction(0.5)] : [.medium]
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
