@@ -80,7 +80,10 @@ enum DanmakuRegion {
             bottomLimit = screen.height - safeBottom - 220             // meta + title + progress + icon row
         }
         let usable = max(0, bottomLimit - top)
-        let height = min(usable, max(laneHeight, (screen.height - top) * area))
+        // area 是「可用区」的比例（面板标注：从顶栏下方算起、不遮挡底部控件）。
+        // 旧版用 (screen.height - top) 作基数，选中档位后又被 usable 截断，实际范围远大于标注。
+        // 现在直接按可用区高度取比例，再夹到至少一行、至多用户设定行数。
+        let height = min(usable, max(laneHeight, usable * area))
         let rows = max(1, min(maxRows, Int(height / max(1, laneHeight))))
         return Region(top: top, rows: rows, bottomLimit: bottomLimit)
     }
@@ -272,6 +275,57 @@ extension Color {
     }
 }
 
+/// 设置面板内的实时弹幕预览：与播放器弹幕开关完全无关，改区域/速度/字号/不透明度立即生效。
+/// 用几条示例弹幕在预览区从右向左滚动，轨道数按当前 area × 显示行数计算，所见即所得。
+struct DanmakuPreview: View {
+    @ObservedObject var settings: DanmakuSettings
+    private let samples = ["这条弹幕会滚动 →", "前方高能！", "好看好看", "哈哈哈哈哈", "打卡打卡", "作者加油", "沙发", "这集太上头了"]
+    private let previewHeight: CGFloat = 132
+
+    private var laneHeight: CGFloat { settings.size.points * 1.55 }
+    /// 预览区里实际渲染的轨道数：与真实播放器一致，按可用高度的 area 比例取，再夹到显示行数。
+    private func laneCount(height: CGFloat) -> Int {
+        let usable = max(0, height - 8)
+        let h = min(usable, max(laneHeight, usable * settings.area.fraction))
+        return max(1, min(settings.rows, Int(h / max(1, laneHeight))))
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let lh = laneHeight
+            let count = laneCount(height: h)
+            let font = settings.size.points
+            let dur = settings.speed.duration
+            TimelineView(.animation) { tl in
+                ZStack(alignment: .topLeading) {
+                    // 预览区底色，示意「弹幕可用范围」
+                    RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06))
+                    ForEach(0..<count, id: \.self) { lane in
+                        let sample = samples[lane % samples.count]
+                        let estWidth = CGFloat(sample.count) * font * 0.95 + 28
+                        let period = dur + Double(estWidth / max(1, w)) * dur
+                        let phase = (tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) + period)
+                            .truncatingRemainder(dividingBy: period) / period
+                        let x = w - CGFloat(phase) * (w + estWidth)
+                        Text(sample)
+                            .font(.system(size: font, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .opacity(settings.opacity)
+                            .shadow(color: .black.opacity(0.8), radius: 2)
+                            .offset(x: x, y: CGFloat(lane) * lh + (lh - font) / 2)
+                    }
+                }
+                .clipped()
+            }
+        }
+        .frame(height: previewHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+    }
+}
+
 struct DanmakuSettingsSheet: View {
     @ObservedObject var settings = DanmakuSettings.shared
     var available = true
@@ -284,6 +338,16 @@ struct DanmakuSettingsSheet: View {
                     Text("当前片源不支持弹幕（仅红果）").font(.footnote).foregroundStyle(STVTheme.secondary)
                 }
                 Toggle("显示弹幕", isOn: $settings.enabled)
+
+                // 实时预览：不受「显示弹幕」开关影响，改任意一项立刻可见（解决关弹幕时控件无反馈）。
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("效果预览").font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text("关着弹幕也能调，改了立即生效").font(.caption).foregroundStyle(STVTheme.secondary)
+                    }
+                    DanmakuPreview(settings: settings)
+                }
                 Toggle(isOn: $settings.merge) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("合并重复弹幕")
