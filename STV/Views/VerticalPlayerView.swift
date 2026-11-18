@@ -312,7 +312,8 @@ struct PlayerScreen: View {
         }
         .onChange(of: landscape) { l in
             if !l { locked = false }
-            panel = nil
+            // 旋转时关闭其它面板，但保留弹幕设置面板：弹幕横竖屏各有对应布局（横屏右半边 / 竖屏底部半屏）。
+            if panel != .danmaku { panel = nil }
             scrubbing = false
             // 横竖屏切换后强制恢复控制栏并清除中心按钮抑制：否则切屏瞬间 centerSuppressed
             // 可能残留为 true、showChrome 为 false，表现为「切到竖屏后点屏幕唤不醒控制栏」。
