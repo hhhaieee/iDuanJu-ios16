@@ -12,6 +12,7 @@ struct ProfileView: View {
     @State private var sharingURL: URL?
     @State private var restoringFile: BackupService.BackupFile?
     @State private var isExporting = false
+    @State private var showRestorePicker = false
 
     var body: some View {
         ScrollView {
@@ -118,7 +119,7 @@ struct ProfileView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份。备份保存在本 App 的「Backups」文件夹，可在「文件」App → 我的 iPhone → 黑果夜剧 → Backups 里查看、取出或放入备份文件。")
+                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份为 .json 文件。可用上方「从文件恢复」直接选择 .json 备份，也可在「文件」App → 我的 iPhone → 黑果夜剧 → Backups 里查看、放入备份文件后从下方列表点选恢复。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
                 }
                 Section {
@@ -145,9 +146,14 @@ struct ProfileView: View {
                         }
                     }
                 }
+                Section {
+                    Button { showRestorePicker = true } label: {
+                        Label("从文件恢复（.json）", systemImage: "square.and.arrow.down")
+                    }
+                }
                 Section("备份文件（点选恢复）") {
                     if backupFiles.isEmpty {
-                        Text("暂无备份文件。点上方「导出备份」生成，或从「文件」App 把 .idjbackup 文件放入 Backups 文件夹后返回此页。")
+                        Text("暂无备份文件。点上方「导出备份」生成，或用「从文件恢复」选择 .json，也可从「文件」App 把 .json 备份放入 Backups 文件夹后返回此页。")
                             .font(.caption).foregroundStyle(STVTheme.secondary)
                     } else {
                         ForEach(backupFiles) { f in
@@ -188,6 +194,14 @@ struct ProfileView: View {
             .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
             .onAppear { backupFiles = BackupService.listFiles() }
+            .fileImporter(isPresented: $showRestorePicker, allowedContentTypes: [.json, .data]) { result in
+                guard case let .success(url) = result else { return }
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url) else { message = "无法读取所选备份文件。"; return }
+                message = BackupService.restore(from: data).message
+                backupFiles = BackupService.listFiles()
+            }
             .confirmationDialog("恢复此备份？将覆盖当前同名数据。", isPresented: Binding(
                 get: { restoringFile != nil },
                 set: { if !$0 { restoringFile = nil } }

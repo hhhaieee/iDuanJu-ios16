@@ -317,13 +317,15 @@ enum PluginInstaller {
     static func interpret(_ text: String) async throws -> Pasted {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.hasPrefix("http://") || t.hasPrefix("https://") {
-            let data = try await download(t, limit: 2 << 20)
+            let data = try await download(t, limit: 8 << 20)
+            // .zip 包：直接交给 prepare(bundle:)（内部按 PK 魔数解压）。
+            if data.starts(with: [0x50, 0x4B]) { return .plugin(try prepare(bundle: data, origin: t)) }
             if let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 if o["plugins"] != nil || o["cms"] != nil { return .subscription(t) }
                 if o["manifest"] != nil { return .plugin(try prepare(bundle: data, origin: t)) }
                 if o["schema"] != nil { return .plugin(try await prepare(manifestData: data, manifestURL: t, origin: t)) }
             }
-            throw PluginError.install("这个链接不是插件 manifest / .idjplugin / 订阅列表")
+            throw PluginError.install("这个链接不是插件 .zip / manifest.json / 旧版 .idjplugin / 订阅列表")
         }
         guard let data = t.data(using: .utf8) else { throw PluginError.install("无法识别") }
         return .plugin(try prepare(bundle: data, origin: "粘贴"))
@@ -342,19 +344,39 @@ enum PluginInstaller {
     }
 
     static func prepare(bundle data: Data, origin: String) throws -> PendingInstall {
+        // 新格式：.zip 包（manifest.json + main.js）。用 PK 魔数识别，走内置 ZipArchive 解压。
+        if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) || data.starts(with: [0x50, 0x4B, 0x05, 0x06]) {
+            return try prepare(zip: data, origin: origin)
+        }
+        // 兼容旧格式：.idjplugin = JSON bundle { "manifest":…, "files":{…} }。
         let b: PluginBundle
         do { b = try JSONDecoder().decode(PluginBundle.self, from: data) }
         catch {
             if let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let m = o["manifest"] {
                 _ = try PluginManifest.decode(try JSONSerialization.data(withJSONObject: m))
             }
-            throw PluginError.install("不是合法的 .idjplugin（需要 {\"manifest\":…, \"files\":{…}}）")
+            throw PluginError.install("不是合法的插件包（支持 .zip 或旧版 .idjplugin）")
         }
         let raw = try JSONSerialization.data(withJSONObject: (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["manifest"] ?? [:])
         let m = try PluginManifest.decode(raw)
         guard let js = b.files[m.entry] else { throw PluginError.install("包里缺少入口文件 \(m.entry)") }
         if b.files.count > 1 { throw PluginError.install("idj1 插件只能有一个脚本文件（不支持 import）") }
         return try validate(manifest: m, source: Data(js.utf8), origin: origin)
+    }
+
+    /// 从 .zip 包安装：zip 内需含 manifest.json，以及 manifest.entry 指向的脚本（如 main.js）。
+    private static func prepare(zip data: Data, origin: String) throws -> PendingInstall {
+        let archive: ZipArchive
+        do { archive = try ZipArchive(data) }
+        catch { throw PluginError.install("无法解压插件包（不是有效的 zip）") }
+        guard let manifestData = archive.data("manifest.json") else {
+            throw PluginError.install("zip 里缺少 manifest.json")
+        }
+        let m = try PluginManifest.decode(manifestData)
+        guard let js = archive.data(m.entry) else {
+            throw PluginError.install("zip 里缺少入口文件 \(m.entry)")
+        }
+        return try validate(manifest: m, source: js, origin: origin)
     }
 
     @MainActor static func validateOnMain(manifest m: PluginManifest, source: Data, origin: String) throws -> PendingInstall {
@@ -416,12 +438,23 @@ enum PluginInstaller {
         guard let root = Bundle.main.resourceURL else { return [] }
         // xcodegen flattens resource groups, so look both in the bundle root and in a Plugins folder.
         let files = [root, root.appendingPathComponent("Plugins")].flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
-        return files.filter { $0.pathExtension == "idjplugin" }.sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { f in
-            guard let d = try? Data(contentsOf: f),
-                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let mo = o["manifest"],
-                  let md = try? JSONSerialization.data(withJSONObject: mo), let m = try? PluginManifest.decode(md) else { return nil }
-            return (f.deletingPathExtension().lastPathComponent, m, d)
-        }
+        return files.filter { $0.pathExtension == "zip" || $0.pathExtension == "idjplugin" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { f in
+                guard let d = try? Data(contentsOf: f) else { return nil }
+                let manifestData: Data?
+                if d.starts(with: [0x50, 0x4B]) {
+                    manifestData = (try? ZipArchive(d))?.data("manifest.json")
+                } else {
+                    var md: Data?
+                    if let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                       let mo = obj?["manifest"] {
+                        md = try? JSONSerialization.data(withJSONObject: mo)
+                    }
+                    manifestData = md
+                }
+                guard let md = manifestData, let m = try? PluginManifest.decode(md) else { return nil }
+                return (f.deletingPathExtension().lastPathComponent, m, d)
+            }
     }
 }
 

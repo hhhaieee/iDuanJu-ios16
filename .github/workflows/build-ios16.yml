@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build72 插件导入改为系统文件选择器直选"
-          NOTES="build72: 插件「从文件导入」改为点击直接调用系统文件选择器，移除原先「放入 PluginImports 文件夹再扫描」的中间步骤及相关界面，导入路径简化为一步。注意：若侧载环境下系统文件选择器受限，请改用「从网址添加」或「粘贴插件内容」导入。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build73 插件改 .zip 直选 + 备份改 .json"
+          NOTES="build73: ① 插件格式改为 .zip（内含 manifest.json + main.js），「从文件导入」点击直选 zip 即装，内置插件已全部转为 zip；仍兼容旧版 .idjplugin（网址/粘贴入口可用）。② 备份改为系统标准 .json 格式，新增「从文件恢复」直接选择 json；旧 .idjbackup 仍可恢复。③ 移除插件「放入文件夹再扫描」的中间步骤。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

@@ -11,8 +11,10 @@ import UniformTypeIdentifiers
 enum BackupService {
     static let formatVersion = 1
 
-    /// 备份文件名后缀（UTType 在 BackupDocument 里定义）。
-    static let fileExtension = "idjbackup"
+    /// 备份文件名后缀：改用系统标准 .json，文件选择器可直接选中（旧 .idjbackup 仍兼容恢复）。
+    static let fileExtension = "json"
+    /// 旧版备份后缀，恢复时同样识别。
+    static let legacyExtension = "idjbackup"
 
     // MARK: - Payload
 
@@ -120,7 +122,7 @@ enum BackupService {
             guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
             for u in items {
                 let ext = u.pathExtension.lowercased()
-                guard ext == fileExtension || ext == "json" else { continue }
+                guard ext == fileExtension || ext == "json" || ext == legacyExtension else { continue }
                 guard !urls.contains(where: { $0.lastPathComponent == u.lastPathComponent }) else { continue }
                 urls.append(u)
             }
@@ -247,7 +249,7 @@ struct BackupOpenURLHandler: ViewModifier {
         content
             .onOpenURL { url in
                 let ext = url.pathExtension.lowercased()
-                guard ext == BackupService.fileExtension || ext == "json" else { return }
+                guard ext == BackupService.fileExtension || ext == "json" || ext == BackupService.legacyExtension else { return }
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else {
