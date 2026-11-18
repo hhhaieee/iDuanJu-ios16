@@ -900,8 +900,10 @@ struct PlayerScreen: View {
             default: return 270
             }
         }()
+        // 横屏弹幕：底部给进度条/控制栏留空间，卡片绝不碰到进度条；内容已压紧可一屏放下。
+        let danmakuLandscapeBottom: CGFloat = 56 + max(0, ins.bottom)
         let maxH: CGFloat = isDanmaku
-            ? (landscape ? full.height : full.height * 0.5)
+            ? (landscape ? full.height - 12 - danmakuLandscapeBottom : full.height * 0.5)
             : (landscape ? (p == .episodes ? 270 : full.height - 44 - 110)
                          : min(p == .episodes ? 372 : 420, full.height * 0.5))
         let body = popoverContent(p)
@@ -909,15 +911,21 @@ struct PlayerScreen: View {
             .frame(maxHeight: maxH, alignment: .top)
             .fixedSize(horizontal: false, vertical: !(p == .episodes || isDanmaku))
             .playerGlass(20, strong: true)
-            .gesture(DragGesture(minimumDistance: 24).onEnded { v in if v.translation.height > 60 { closePanel() } })
+            // 横屏弹幕内容可滚动，整卡下拉手势会和滚动冲突，改由标题栏 X 关闭；其它面板保留下拉关闭。
+            .gesture(landscape && isDanmaku ? nil :
+                DragGesture(minimumDistance: 24).onEnded { v in if v.translation.height > 60 { closePanel() } })
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("player.popover.\(p.rawValue)")
             .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: landscape ? .topTrailing : .bottomLeading)))
         if isDanmaku && landscape {
-            // 横屏弹幕：占右半边（横向一半）、近全高，露出左半边播放器。
-            HStack(spacing: 0) { Spacer(minLength: 0); body }
-                .padding(.vertical, 12).padding(.trailing, 12)
-                .frame(width: full.width, height: full.height)
+            // 横屏弹幕：占右半边（横向一半）、从顶部展开，底部留出进度条区，卡片不碰进度条。
+            VStack(spacing: 0) {
+                HStack(spacing: 0) { Spacer(minLength: 0); body }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 8).padding(.trailing, 12)
+            .padding(.bottom, danmakuLandscapeBottom)
+            .frame(width: full.width, height: full.height)
         } else if !landscape {
             // 竖屏弹幕及其它面板：底部弹出（弹幕全宽半屏）。
             VStack { Spacer(); HStack { body; Spacer(minLength: 0) } }

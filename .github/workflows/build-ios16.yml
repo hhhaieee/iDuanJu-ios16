@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build69 修复旋转后弹幕面板消失"
-          NOTES="build69: 修复竖屏打开弹幕设置后旋转到横屏面板消失的问题——旋转时保留弹幕面板（其它面板仍关闭），横屏显示右半边、竖屏底部半屏"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build70 弹幕卡片紧凑化 + 插件文件夹导入"
+          NOTES="build70: ① 横屏弹幕设置卡片压紧间距（主6/组3/预览框6、开关并入标题行），底部留出进度条区不碰进度条，全部设置项一屏放下可点；整卡下拉手势移除避免与滚动冲突。② 插件「从文件导入」改为文件夹扫描模式（借鉴备份与恢复）：文档目录建 PluginImports，放入 .idjplugin 即可扫描列出点选安装，保留系统文件选择器备选"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

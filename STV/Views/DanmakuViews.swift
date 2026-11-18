@@ -277,7 +277,7 @@ struct DanmakuPreview: View {
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 13)
+            .padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -291,12 +291,14 @@ struct DanmakuSettingsSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Image(systemName: "tv.fill").font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(STVTheme.accent)
                     Text("弹幕设置").font(.headline)
                     Spacer()
+                    Toggle("", isOn: $settings.enabled).labelsHidden()
+                        .accessibilityLabel("显示弹幕")
                     Button { onClose() } label: {
                         Image(systemName: "xmark.circle.fill").font(.system(size: 22))
                             .foregroundStyle(STVTheme.secondary)
@@ -306,13 +308,11 @@ struct DanmakuSettingsSheet: View {
                 if !available {
                     Text("当前片源不支持弹幕（仅红果）").font(.footnote).foregroundStyle(STVTheme.secondary)
                 }
-                Toggle("显示弹幕", isOn: $settings.enabled)
-                    .font(.subheadline)
 
                 // 单行静态预览：固定示例字，仅随字号 / 不透明度变化，不滚动、不耗帧。
                 DanmakuPreview(settings: settings)
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack {
                         Text("字体大小").font(.subheadline)
                         Spacer()
@@ -322,7 +322,7 @@ struct DanmakuSettingsSheet: View {
                         ForEach(DanmakuSettings.Size.allCases) { Text($0.label).tag($0) }
                     }.pickerStyle(.segmented)
                 }
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack {
                         Text("不透明度").font(.subheadline)
                         Spacer()
@@ -335,7 +335,7 @@ struct DanmakuSettingsSheet: View {
                         Text("100%").tag(1.0)
                     }.pickerStyle(.segmented)
                 }
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack {
                         Text("显示区域").font(.subheadline)
                         Spacer()
@@ -345,7 +345,7 @@ struct DanmakuSettingsSheet: View {
                         ForEach(DanmakuSettings.Area.allCases) { Text($0.label).tag($0) }
                     }.pickerStyle(.segmented)
                 }
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack {
                         Text("滚动速度").font(.subheadline)
                         Spacer()
@@ -360,7 +360,7 @@ struct DanmakuSettingsSheet: View {
                 }
             }
             .tint(STVTheme.accent)
-            .padding(14).padding(.top, 4)
+            .padding(10).padding(.top, 2)
         }
         // 面板期间冻结播放器弹幕逐帧重绘，主线程让给面板触摸响应（否则按钮「时灵时不灵」）。
         .onAppear { settings.panelOpen = true }
