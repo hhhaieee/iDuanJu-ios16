@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build74 移除旧格式与扫描列表"
-          NOTES="build74: ① 彻底移除插件旧格式 .idjplugin：只认 .zip，不再兼容 JSON bundle / 粘贴旧格式，内置插件均为 zip。② 备份移除「扫描文件夹点选恢复」列表，恢复只走系统选择器「从文件恢复（.json）」单一路径；导出后直接弹出系统分享面板保存；不再兼容旧 .idjbackup。③ 删除插件文件夹扫描服务与相关自定义文档类型声明。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build75 插件/备份改原生文件选择器直选"
+          NOTES="build75: 基于稳定的 build71 代码，仅改造文件选择方式。① 插件导入、备份恢复统一改用 UIKit 原生 UIDocumentPickerViewController（与 guoapp 同款），点按钮直接弹出系统文件列表点选 .idjplugin / .idjbackup，解决侧载下 SwiftUI 选择器点了没反应的问题；② 删除 PluginImports / Backups 文件夹扫描中间步骤，无额外选择路径；③ 保留 build71 的旧格式与全部播放器/弹幕优化。备份导出后直接弹系统分享面板保存到文件 App。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

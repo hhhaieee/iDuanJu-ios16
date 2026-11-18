@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ProfileView: View {
     @State private var message: String?
@@ -9,8 +10,8 @@ struct ProfileView: View {
     @EnvironmentObject private var appearance: AppearanceModel
     @State private var showBackup = false
     @State private var sharingURL: URL?
-    @State private var isExporting = false
     @State private var showRestorePicker = false
+    @State private var isExporting = false
 
     var body: some View {
         ScrollView {
@@ -117,7 +118,7 @@ struct ProfileView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份为 .json 文件。备份用系统分享面板存到「文件」App 长期保存；恢复请用下方「从文件恢复」直接选择 .json 备份。")
+                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份为 .idjbackup 文件。点「导出备份」后在系统分享面板里选「存储到文件」保存；恢复时点「从文件恢复」直接选择备份文件。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
                 }
                 Section {
@@ -128,8 +129,8 @@ struct ProfileView: View {
                             let url = BackupService.exportToBackupDir()
                             DispatchQueue.main.async {
                                 isExporting = false
-                                if let url {
-                                    // 直接弹出系统分享面板保存，不再依赖文件夹扫描列表。
+                                if let url = url {
+                                    // 直接弹系统分享面板，把备份文件存到「文件」App 长期保存。
                                     sharingURL = url
                                 } else {
                                     message = "生成备份文件失败，请重试。"
@@ -143,10 +144,8 @@ struct ProfileView: View {
                             if isExporting { ProgressView() }
                         }
                     }
-                }
-                Section {
                     Button { showRestorePicker = true } label: {
-                        Label("从文件恢复（.json）", systemImage: "square.and.arrow.down")
+                        Label("从文件恢复（.idjbackup）", systemImage: "square.and.arrow.down")
                     }
                 }
                 Section {
@@ -156,12 +155,18 @@ struct ProfileView: View {
             }
             .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
-            .fileImporter(isPresented: $showRestorePicker, allowedContentTypes: [.json, .data]) { result in
-                guard case let .success(url) = result else { return }
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                guard let data = try? Data(contentsOf: url) else { message = "无法读取所选备份文件。"; return }
-                message = BackupService.restore(from: data).message
+            .sheet(isPresented: $showRestorePicker) {
+                NativeDocumentPicker(contentTypes: [.idjBackup, .json, .data]) { url in
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    guard let data = try? Data(contentsOf: url) else {
+                        showRestorePicker = false
+                        message = "无法读取所选备份文件。"
+                        return
+                    }
+                    showRestorePicker = false
+                    message = BackupService.restore(from: data).message
+                }
             }
             .sheet(isPresented: Binding(
                 get: { sharingURL != nil },

@@ -1,6 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// 与 Info.plist 的 UTImportedTypeDeclarations 对应；让文件选择器可选 .idjplugin。
+extension UTType {
+    static let idjplugin = UTType(importedAs: "com.stv.idjplugin", conformingTo: .data)
+}
+
 /// 我的 → 插件：已安装插件、添加（网址 / 文件 / 粘贴）、订阅、内置推荐、苹果 CMS 采集站、检查更新。
 struct PluginsView: View {
     @ObservedObject private var store = PluginStore.shared
@@ -37,7 +42,9 @@ struct PluginsView: View {
                 }
                 group("添加插件") {
                     action("从网址添加", "link", id: "plugins.add.url") { urlText = ""; showURL = true }
-                    action("从文件导入（.zip）", "doc.badge.plus", id: "plugins.add.file") { showFile = true }
+                    action("从文件导入（.idjplugin）", "doc.badge.plus", id: "plugins.add.file") {
+                        showFile = true
+                    }
                     action("粘贴插件内容", "doc.on.clipboard", id: "plugins.add.paste") { showPaste = true }
                     action(busy == "update" ? "正在检查更新…" : "检查更新", "arrow.triangle.2.circlepath", id: "plugins.update") { await checkUpdates() }
                 }
@@ -102,10 +109,10 @@ struct PluginsView: View {
             }
         }
         .alert("插件网址", isPresented: $showURL) {
-            TextField("https://…/plugin.zip 或 manifest.json", text: $urlText).textInputAutocapitalization(.never).keyboardType(.URL)
+            TextField("https://…/manifest.json 或 .idjplugin", text: $urlText).textInputAutocapitalization(.never).keyboardType(.URL)
             Button("取消", role: .cancel) {}
             Button("下一步") { interpret(urlText) }
-        } message: { Text("支持 .zip、manifest.json 或订阅列表链接") }
+        } message: { Text("支持 manifest.json、.idjplugin 或订阅列表链接") }
         .alert("订阅地址", isPresented: $showSub) {
             TextField("https://…/plugins.json", text: $subText).textInputAutocapitalization(.never).keyboardType(.URL)
             Button("取消", role: .cancel) {}
@@ -113,12 +120,23 @@ struct PluginsView: View {
         }
         .sheet(isPresented: $showPaste) { PasteSheet { text in showPaste = false; if let text { interpret(text) } } }
         .sheet(isPresented: $showCMS) { AddCMSSheet { showCMS = false; if let m = $0 { message = m } } }
-        .fileImporter(isPresented: $showFile, allowedContentTypes: [.zip, .json, .plainText, .data]) { r in
-            guard case let .success(url) = r else { return }
-            let ok = url.startAccessingSecurityScopedResource()
-            defer { if ok { url.stopAccessingSecurityScopedResource() } }
-            guard let d = try? Data(contentsOf: url), d.count < 4 << 20 else { message = "无法读取文件"; return }
-            prepare { try PluginInstaller.prepare(bundle: d, origin: "文件：" + url.lastPathComponent) }
+        .sheet(isPresented: $showFile) {
+            NativeDocumentPicker(contentTypes: [.idjplugin, .json, .plainText, .data]) { url in
+                let ok = url.startAccessingSecurityScopedResource()
+                defer { if ok { url.stopAccessingSecurityScopedResource() } }
+                guard let d = try? Data(contentsOf: url), d.count < 4 << 20 else {
+                    showFile = false
+                    message = "无法读取文件"
+                    return
+                }
+                showFile = false
+                // 等选择器 sheet 关闭后再走权限确认 sheet，避免两个 sheet 同帧切换冲突。
+                let data = d
+                let origin = "文件：" + url.lastPathComponent
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    prepare { try PluginInstaller.prepare(bundle: data, origin: origin) }
+                }
+            }
         }
         .accessibilityIdentifier("plugins.root")
         #if DEBUG
@@ -334,7 +352,7 @@ private struct PasteSheet: View {
         NavigationStack {
             TextEditor(text: $text).font(.system(.footnote, design: .monospaced)).padding(8)
                 .overlay(alignment: .topLeading) {
-                    if text.isEmpty { Text("粘贴插件 / 订阅链接；.zip 请用「从文件导入」").foregroundStyle(.secondary).padding(14).allowsHitTesting(false) }
+                    if text.isEmpty { Text("粘贴 .idjplugin 内容（JSON）或插件 / 订阅链接").foregroundStyle(.secondary).padding(14).allowsHitTesting(false) }
                 }
                 .navigationTitle("粘贴插件").navigationBarTitleDisplayMode(.inline)
                 .toolbar {

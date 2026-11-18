@@ -36,7 +36,7 @@ Pornhub (mediaDefinitions) were cross-checked against its extractors. The Swift 
   18comic plugin's JS. No code copied.
 
 ## Bundled plugin site references
-- manga18fx / komikindo / 18comic plugins (`STV/Resources/Plugins/*.zip`) parse the sites' public HTML with the
+- manga18fx / komikindo / 18comic plugins (`STV/Resources/Plugins/*.idjplugin`) parse the sites' public HTML with the
   host CSS selector API; independent implementations.
 - 苹果 CMS v10 采集接口 (`?ac=list|detail`) adapter: independent implementation of the public API format.
 
