@@ -52,7 +52,6 @@ struct PlayerScreen: View {
     @State private var noAutoHide = false
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @State private var panel: PlayerPanel?
-    @State private var danmakuSheet = false
     @State private var speedMode = false
     @State private var previewRate: Double = 1.0
     @State private var pendingLock = false
@@ -330,10 +329,6 @@ struct PlayerScreen: View {
             else { OrientationGate.unlockRotation() }
         }
         .sheet(item: $verifyTarget) { t in SiteVerifySheet(target: t) { if let c = co.current { co.activate(c) } } }
-        .sheet(isPresented: $danmakuSheet, onDismiss: flashChrome) {
-            DanmakuSettingsSheet(available: series.source == .hongguo)
-                .presentationDragIndicator(.visible).compatPresentationBackground(STVTheme.surface)
-        }
     }
 
     // MARK: Layers
@@ -735,7 +730,7 @@ struct PlayerScreen: View {
                 Label(sleepTimer.isOn ? "定时开关（\(SleepTimerSettings.minutes) 分）" : "定时开关", systemImage: "timer")
             }
             if series.source == .hongguo {
-                Button { danmakuSheet = true } label: { Label("弹幕设置", systemImage: "slider.horizontal.3") }
+                Button { toggle(.danmaku) } label: { Label("弹幕设置", systemImage: "slider.horizontal.3") }
             }
             Button { UIPasteboard.general.string = co.detail?.title ?? series.title; showOSD("已复制剧名") } label: {
                 Label("复制剧名", systemImage: "doc.on.doc")
@@ -895,31 +890,36 @@ struct PlayerScreen: View {
     // MARK: Popovers
 
     @ViewBuilder private func popover(_ p: PlayerPanel, full: CGSize, ins: EdgeInsets) -> some View {
+        let isDanmaku = p == .danmaku
         let width: CGFloat = {
             switch p {
             case .episodes: return landscape ? 380 : full.width - 24
             case .rates: return landscape ? 230 : 220
+            case .danmaku: return full.width - 24
             default: return 270
             }
         }()
-        let maxH: CGFloat = landscape ? (p == .episodes ? 270 : full.height - 44 - 110)
-                                      : min(p == .episodes ? 372 : 420, full.height * 0.5)
+        let maxH: CGFloat = isDanmaku
+            ? full.height * 0.5
+            : (landscape ? (p == .episodes ? 270 : full.height - 44 - 110)
+                         : min(p == .episodes ? 372 : 420, full.height * 0.5))
         let body = popoverContent(p)
             .frame(width: width)
             .frame(maxHeight: maxH, alignment: .top)
-            .fixedSize(horizontal: false, vertical: p != .episodes)
+            .fixedSize(horizontal: false, vertical: !(p == .episodes || isDanmaku))
             .playerGlass(20, strong: true)
             .gesture(DragGesture(minimumDistance: 24).onEnded { v in if v.translation.height > 60 { closePanel() } })
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("player.popover.\(p.rawValue)")
-            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: landscape ? .topTrailing : .bottomLeading)))
-        if landscape {
-            VStack { HStack { Spacer(); body }; Spacer() }
-                .padding(.top, p == .episodes ? 14 : 44).padding(.trailing, 48)
-                .frame(width: full.width, height: full.height)
-        } else {
+            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: isDanmaku || !landscape ? .bottomLeading : .topTrailing)))
+        if isDanmaku || !landscape {
+            // 弹幕横竖屏都底部弹出、全宽半屏，露出上方播放画面（与竖屏观感一致）。
             VStack { Spacer(); HStack { body; Spacer(minLength: 0) } }
                 .padding(.horizontal, 12).padding(.bottom, max(0, ins.bottom - 6) + 44 + 12)
+                .frame(width: full.width, height: full.height)
+        } else {
+            VStack { HStack { Spacer(); body }; Spacer() }
+                .padding(.top, p == .episodes ? 14 : 44).padding(.trailing, 48)
                 .frame(width: full.width, height: full.height)
         }
     }
@@ -981,7 +981,7 @@ struct PlayerScreen: View {
                                 panel = nil; onSwitchSeries(s)
                             })
         case .danmaku:
-            EmptyView()
+            DanmakuSettingsSheet(available: series.source == .hongguo) { closePanel() }
         }
     }
 

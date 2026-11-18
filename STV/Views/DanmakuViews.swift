@@ -286,13 +286,10 @@ struct DanmakuPreview: View {
 
 struct DanmakuSettingsSheet: View {
     @ObservedObject var settings = DanmakuSettings.shared
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.verticalSizeClass) private var vClass
     var available = true
+    var onClose: () -> Void = {}
 
     var body: some View {
-        // 竖屏、横屏都固定半屏、不可上拉全屏；横屏固定 50% 露出视频，避免设备旋转时被系统拉到全屏。
-        let detents: Set<PresentationDetent> = vClass == .compact ? [.fraction(0.5)] : [.medium]
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
@@ -300,8 +297,7 @@ struct DanmakuSettingsSheet: View {
                         .foregroundStyle(STVTheme.accent)
                     Text("弹幕设置").font(.headline)
                     Spacer()
-                    // 下拉关闭手势与播放器手势可能冲突，保留显式关闭按钮随时退出。
-                    Button { dismiss() } label: {
+                    Button { onClose() } label: {
                         Image(systemName: "xmark.circle.fill").font(.system(size: 22))
                             .foregroundStyle(STVTheme.secondary)
                     }
@@ -366,7 +362,6 @@ struct DanmakuSettingsSheet: View {
             .tint(STVTheme.accent)
             .padding(14).padding(.top, 4)
         }
-        .presentationDetents(detents)
         // 面板期间冻结播放器弹幕逐帧重绘，主线程让给面板触摸响应（否则按钮「时灵时不灵」）。
         .onAppear { settings.panelOpen = true }
         .onDisappear { settings.panelOpen = false }
