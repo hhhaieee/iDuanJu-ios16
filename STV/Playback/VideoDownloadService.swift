@@ -205,7 +205,7 @@ enum VideoDownloadService {
             if let rg = initRange {
                 let lo = max(0, rg.lowerBound)
                 let hi = min(initData.count - 1, rg.upperBound)
-                if lo <= hi { payload = initData.subdata(in: lo...hi) }
+                if lo <= hi { payload = initData.subdata(in: lo..<(hi + 1)) }
             }
             let clear = decrypted(payload, sequence: seqBase)
             let name = "init.mp4"
