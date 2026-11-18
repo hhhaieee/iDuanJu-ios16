@@ -1,11 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 与 Info.plist 的 UTImportedTypeDeclarations 对应；让文件选择器可选 .idjplugin。
-extension UTType {
-    static let idjplugin = UTType(importedAs: "com.stv.idjplugin", conformingTo: .data)
-}
-
 /// 我的 → 插件：已安装插件、添加（网址 / 文件 / 粘贴）、订阅、内置推荐、苹果 CMS 采集站、检查更新。
 struct PluginsView: View {
     @ObservedObject private var store = PluginStore.shared
@@ -110,7 +105,7 @@ struct PluginsView: View {
             TextField("https://…/plugin.zip 或 manifest.json", text: $urlText).textInputAutocapitalization(.never).keyboardType(.URL)
             Button("取消", role: .cancel) {}
             Button("下一步") { interpret(urlText) }
-        } message: { Text("支持 .zip、manifest.json、旧版 .idjplugin 或订阅列表链接") }
+        } message: { Text("支持 .zip、manifest.json 或订阅列表链接") }
         .alert("订阅地址", isPresented: $showSub) {
             TextField("https://…/plugins.json", text: $subText).textInputAutocapitalization(.never).keyboardType(.URL)
             Button("取消", role: .cancel) {}
@@ -118,7 +113,7 @@ struct PluginsView: View {
         }
         .sheet(isPresented: $showPaste) { PasteSheet { text in showPaste = false; if let text { interpret(text) } } }
         .sheet(isPresented: $showCMS) { AddCMSSheet { showCMS = false; if let m = $0 { message = m } } }
-        .fileImporter(isPresented: $showFile, allowedContentTypes: [.zip, .idjplugin, .json, .plainText, .data]) { r in
+        .fileImporter(isPresented: $showFile, allowedContentTypes: [.zip, .json, .plainText, .data]) { r in
             guard case let .success(url) = r else { return }
             let ok = url.startAccessingSecurityScopedResource()
             defer { if ok { url.stopAccessingSecurityScopedResource() } }
@@ -339,7 +334,7 @@ private struct PasteSheet: View {
         NavigationStack {
             TextEditor(text: $text).font(.system(.footnote, design: .monospaced)).padding(8)
                 .overlay(alignment: .topLeading) {
-                    if text.isEmpty { Text("粘贴插件 JSON 内容（旧 .idjplugin 格式）或插件 / 订阅链接；.zip 请用「从文件导入」").foregroundStyle(.secondary).padding(14).allowsHitTesting(false) }
+                    if text.isEmpty { Text("粘贴插件 / 订阅链接；.zip 请用「从文件导入」").foregroundStyle(.secondary).padding(14).allowsHitTesting(false) }
                 }
                 .navigationTitle("粘贴插件").navigationBarTitleDisplayMode(.inline)
                 .toolbar {

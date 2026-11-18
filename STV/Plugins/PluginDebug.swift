@@ -3,7 +3,7 @@ import Foundation
 #if DEBUG
 /// Simulator / UI-test hooks (DEBUG only; nothing here exists in Release):
 /// - `STV_PLUGINS_RESET=1` wipes installed plugins + 采集站 first.
-/// - `STV_PLUGINS=bundled` installs the bundled `.idjplugin`s (non-adult ones unless `STV_PLUGINS_ADULT=1`).
+/// - `STV_PLUGINS=bundled` installs the bundled `.zip`s (non-adult ones unless `STV_PLUGINS_ADULT=1`).
 /// - `STV_PLUGIN_DEMO=1` installs a neutral demo comic plugin (example domains, used for screenshots).
 /// - `STV_CMS_FIXTURE=1` adds a fixture 采集站 answered offline by `PluginFixtures` (neutral titles, solid-color covers).
 /// - `STV_PLUGIN_CONSENT_DEMO=1` opens the update consent sheet for the demo plugin (permission diff screenshot).
@@ -30,12 +30,10 @@ enum DebugPlugins {
     };
     """
 
-    static func demoBundle(version: String, extra: Bool) -> Data {
-        (try? JSONSerialization.data(withJSONObject: ["manifest": demoManifest(version: version, extra: extra), "files": ["main.js": demoJS]])) ?? Data()
-    }
-
     static func demoPending(update: Bool) -> PendingInstall? {
-        try? PluginInstaller.prepare(bundle: demoBundle(version: update ? "1.1.0" : "1.0.0", extra: update), origin: "https://demo-comics.example.com/plugin.idjplugin")
+        let manifest = try? PluginManifest.decode(try JSONSerialization.data(withJSONObject: demoManifest(version: update ? "1.1.0" : "1.0.0", extra: update)))
+        guard let manifest else { return nil }
+        return try? PluginInstaller.validate(manifest: manifest, source: Data(demoJS.utf8), origin: "https://demo-comics.example.com/plugin.zip")
     }
 
     @MainActor static func seedIfRequested(_ store: PluginStore) {

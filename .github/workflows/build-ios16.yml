@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build73 插件改 .zip 直选 + 备份改 .json"
-          NOTES="build73: ① 插件格式改为 .zip（内含 manifest.json + main.js），「从文件导入」点击直选 zip 即装，内置插件已全部转为 zip；仍兼容旧版 .idjplugin（网址/粘贴入口可用）。② 备份改为系统标准 .json 格式，新增「从文件恢复」直接选择 json；旧 .idjbackup 仍可恢复。③ 移除插件「放入文件夹再扫描」的中间步骤。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build74 移除旧格式与扫描列表"
+          NOTES="build74: ① 彻底移除插件旧格式 .idjplugin：只认 .zip，不再兼容 JSON bundle / 粘贴旧格式，内置插件均为 zip。② 备份移除「扫描文件夹点选恢复」列表，恢复只走系统选择器「从文件恢复（.json）」单一路径；导出后直接弹出系统分享面板保存；不再兼容旧 .idjbackup。③ 删除插件文件夹扫描服务与相关自定义文档类型声明。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

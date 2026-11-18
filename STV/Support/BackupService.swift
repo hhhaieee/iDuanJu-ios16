@@ -11,10 +11,8 @@ import UniformTypeIdentifiers
 enum BackupService {
     static let formatVersion = 1
 
-    /// 备份文件名后缀：改用系统标准 .json，文件选择器可直接选中（旧 .idjbackup 仍兼容恢复）。
+    /// 备份文件名后缀：系统标准 .json，文件选择器可直接选中。
     static let fileExtension = "json"
-    /// 旧版备份后缀，恢复时同样识别。
-    static let legacyExtension = "idjbackup"
 
     // MARK: - Payload
 
@@ -90,9 +88,9 @@ enum BackupService {
         return "黑果备份-\(df.string(from: Date())).\(fileExtension)"
     }
 
-    // MARK: - Backup folder (App 内自建导入/导出列表，绕开侧载下失效的 UIDocumentPicker)
+    // MARK: - Backup folder
 
-    /// 备份文件目录：位于 App 文档共享目录下，用户在「文件」App → 我的 iPhone → 黑果夜剧 → Backups 可见。
+    /// 备份文件目录：导出时把 .json 落盘到此处，供系统分享面板保存。
     static var backupDir: URL {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("Backups", isDirectory: true)
@@ -100,34 +98,6 @@ enum BackupService {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         return dir
-    }
-
-    struct BackupFile: Identifiable {
-        let url: URL
-        var id: String { url.lastPathComponent }
-        var name: String { url.lastPathComponent }
-        var size: Int64 {
-            (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
-        }
-        var date: Date {
-            (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
-        }
-    }
-
-    /// 列出备份目录（含文档根目录）下所有备份文件，按修改时间倒序。
-    static func listFiles() -> [BackupFile] {
-        let fm = FileManager.default
-        var urls: [URL] = []
-        for dir in [backupDir, fm.urls(for: .documentDirectory, in: .userDomainMask)[0]] {
-            guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
-            for u in items {
-                let ext = u.pathExtension.lowercased()
-                guard ext == fileExtension || ext == "json" || ext == legacyExtension else { continue }
-                guard !urls.contains(where: { $0.lastPathComponent == u.lastPathComponent }) else { continue }
-                urls.append(u)
-            }
-        }
-        return urls.map(BackupFile.init).sorted { $0.date > $1.date }
     }
 
     /// 生成备份数据并写入备份目录，返回落盘的文件 URL。
@@ -178,56 +148,6 @@ enum BackupService {
     }
 }
 
-/// 备份文件的 UTType（用于 .fileExporter / .fileImporter）。
-extension UTType {
-    static let idjBackup = UTType(exportedAs: "com.local.stv.backup", conformingTo: .data)
-}
-
-/// SwiftUI 文件导出用的可导出文档。
-struct BackupDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.idjBackup, .json] }
-    var data: Data
-
-    init(data: Data) { self.data = data }
-
-    init(configuration: ReadConfiguration) throws {
-        data = configuration.file.regularFileContents ?? Data()
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
-    }
-}
-
-/// 用 UIKit 的 UIDocumentPicker 导出：asCopy=true 时右上角显示「存储/保存」而非 SwiftUI
-/// fileExporter 固定显示的「移动」（后者是系统文案，无法通过 UTI 配置改变）。
-struct UIKitDocumentExporter: UIViewControllerRepresentable {
-    let url: URL
-    var asCopy: Bool = true
-    let onFinish: (Result<URL, Error>) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
-
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let vc = UIDocumentPickerViewController(forExporting: [url], asCopy: asCopy)
-        vc.delegate = context.coordinator
-        return vc
-    }
-
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
-
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onFinish: (Result<URL, Error>) -> Void
-        init(onFinish: @escaping (Result<URL, Error>) -> Void) { self.onFinish = onFinish }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            onFinish(.success(urls.first ?? URL(fileURLWithPath: NSTemporaryDirectory())))
-        }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            onFinish(.failure(CancellationError()))
-        }
-    }
-}
-
 /// 系统分享面板：把备份文件分享到「文件」App / 其他 App / 存储到云端。
 /// 用 UIActivityViewController 而非 UIDocumentPicker，绕开 TrollStore 侧载下选择器失效的问题。
 struct BackupShareSheet: UIViewControllerRepresentable {
@@ -242,14 +162,14 @@ struct BackupShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-/// App 入口用：外部「文件」App 点开 .idjbackup 时接收 URL → 恢复 → 弹结果提示。
+/// App 入口用：外部「文件」App 点开 .json 备份时接收 URL → 恢复 → 弹结果提示。
 struct BackupOpenURLHandler: ViewModifier {
     @State private var message: String?
     func body(content: Content) -> some View {
         content
             .onOpenURL { url in
                 let ext = url.pathExtension.lowercased()
-                guard ext == BackupService.fileExtension || ext == "json" || ext == BackupService.legacyExtension else { return }
+                guard ext == BackupService.fileExtension else { return }
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else {

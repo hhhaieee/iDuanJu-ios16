@@ -83,7 +83,7 @@ final class PluginUITests: XCTestCase {
         editor.typeText("{\"files\":{}}")
         tap(app.buttons["下一步"])
         XCTAssertTrue(el("plugins.message").waitForExistence(timeout: 10))
-        XCTAssertTrue((el("plugins.message").label).contains("idjplugin") || (el("plugins.message").label).contains("manifest"), el("plugins.message").label)
+        XCTAssertTrue((el("plugins.message").label).contains("manifest") || (el("plugins.message").label).contains(".zip"), el("plugins.message").label)
         shot("08-paste-rejected")
     }
 

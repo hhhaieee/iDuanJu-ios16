@@ -12,7 +12,7 @@ manga18fx/
 └── icon.png        可选
 ```
 
-插件只有一个脚本文件（不支持 import，包括相对路径 import）。分发时打成 `.idjplugin`：一个 JSON 文件 `{"manifest": {...}, "files": {"main.js": "..."}}`（不是 zip，`files` 里只能有入口脚本）。也可以直接给 `manifest.json` 的网址，App 按 `entry` 把同目录的脚本一起下回来。
+插件只有一个脚本文件（不支持 import，包括相对路径 import）。分发时打成 `.zip`：压缩包内含 `manifest.json` 与 `entry` 指向的入口脚本（如 `main.js`，位于根目录，只能有入口脚本）。也可以直接给 `manifest.json` 的网址，App 按 `entry` 把同目录的脚本一起下回来。
 
 ## 2. manifest.json 逐项说明
 

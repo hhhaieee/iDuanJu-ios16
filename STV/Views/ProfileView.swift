@@ -8,9 +8,7 @@ struct ProfileView: View {
     @ObservedObject private var downloads = TGDownloads.shared
     @EnvironmentObject private var appearance: AppearanceModel
     @State private var showBackup = false
-    @State private var backupFiles: [BackupService.BackupFile] = []
     @State private var sharingURL: URL?
-    @State private var restoringFile: BackupService.BackupFile?
     @State private var isExporting = false
     @State private var showRestorePicker = false
 
@@ -119,7 +117,7 @@ struct ProfileView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份为 .json 文件。可用上方「从文件恢复」直接选择 .json 备份，也可在「文件」App → 我的 iPhone → 黑果夜剧 → Backups 里查看、放入备份文件后从下方列表点选恢复。")
+                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份为 .json 文件。备份用系统分享面板存到「文件」App 长期保存；恢复请用下方「从文件恢复」直接选择 .json 备份。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
                 }
                 Section {
@@ -130,9 +128,9 @@ struct ProfileView: View {
                             let url = BackupService.exportToBackupDir()
                             DispatchQueue.main.async {
                                 isExporting = false
-                                backupFiles = BackupService.listFiles()
-                                if url != nil {
-                                    message = "备份已生成，见下方列表。可点右侧分享按钮存到「文件」App 长期保存。"
+                                if let url {
+                                    // 直接弹出系统分享面板保存，不再依赖文件夹扫描列表。
+                                    sharingURL = url
                                 } else {
                                     message = "生成备份文件失败，请重试。"
                                 }
@@ -151,41 +149,6 @@ struct ProfileView: View {
                         Label("从文件恢复（.json）", systemImage: "square.and.arrow.down")
                     }
                 }
-                Section("备份文件（点选恢复）") {
-                    if backupFiles.isEmpty {
-                        Text("暂无备份文件。点上方「导出备份」生成，或用「从文件恢复」选择 .json，也可从「文件」App 把 .json 备份放入 Backups 文件夹后返回此页。")
-                            .font(.caption).foregroundStyle(STVTheme.secondary)
-                    } else {
-                        ForEach(backupFiles) { f in
-                            HStack {
-                                Button {
-                                    restoringFile = f
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(f.name).font(.subheadline).lineLimit(1)
-                                        Text("\(f.size / 1024) KB · \(f.date.formatted(date: .abbreviated, time: .shortened))")
-                                            .font(.caption).foregroundStyle(STVTheme.secondary)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                Spacer()
-                                Button { sharingURL = f.url } label: {
-                                    Image(systemName: "square.and.arrow.up").foregroundStyle(STVTheme.accent)
-                                }.buttonStyle(.borderless)
-                                Button {
-                                    try? FileManager.default.removeItem(at: f.url)
-                                    backupFiles = BackupService.listFiles()
-                                } label: {
-                                    Image(systemName: "trash").foregroundStyle(.red)
-                                }.buttonStyle(.borderless)
-                            }
-                        }
-                        .onDelete { idx in
-                            for i in idx { try? FileManager.default.removeItem(at: backupFiles[i].url) }
-                            backupFiles = BackupService.listFiles()
-                        }
-                    }
-                }
                 Section {
                     Text("恢复会覆盖同名数据，建议先导出一份当前备份。代理地址与登录态不在备份范围；恢复后需重启 App 生效。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
@@ -193,28 +156,12 @@ struct ProfileView: View {
             }
             .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
-            .onAppear { backupFiles = BackupService.listFiles() }
             .fileImporter(isPresented: $showRestorePicker, allowedContentTypes: [.json, .data]) { result in
                 guard case let .success(url) = result else { return }
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else { message = "无法读取所选备份文件。"; return }
                 message = BackupService.restore(from: data).message
-                backupFiles = BackupService.listFiles()
-            }
-            .confirmationDialog("恢复此备份？将覆盖当前同名数据。", isPresented: Binding(
-                get: { restoringFile != nil },
-                set: { if !$0 { restoringFile = nil } }
-            )) {
-                Button("恢复", role: .destructive) {
-                    if let f = restoringFile, let data = try? Data(contentsOf: f.url) {
-                        message = BackupService.restore(from: data).message
-                    } else {
-                        message = "无法读取所选备份文件。"
-                    }
-                    restoringFile = nil
-                }
-                Button("取消", role: .cancel) { restoringFile = nil }
             }
             .sheet(isPresented: Binding(
                 get: { sharingURL != nil },

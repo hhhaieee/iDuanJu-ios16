@@ -25,9 +25,6 @@ struct InstalledPlugin: Codable, Hashable, Identifiable {
 
 struct PluginCategory: Codable, Hashable { var id: String; var name: String; var isRank: Bool = false }
 
-/// `.idjplugin` file = JSON bundle (no zip): `{ "manifest": {...}, "files": { "main.js": "..." } }`.
-struct PluginBundle: Codable { var manifest: PluginManifest; var files: [String: String] }
-
 /// Everything the install / update prompt needs.
 struct PendingInstall: Identifiable {
     var manifest: PluginManifest
@@ -312,7 +309,7 @@ enum PluginInstaller {
         return data
     }
 
-    /// Text pasted / scanned by the user: a manifest URL, a subscription URL, or a bundle JSON.
+    /// Text pasted / scanned by the user: a manifest URL, a subscription URL, or a .zip URL.
     enum Pasted { case plugin(PendingInstall), subscription(String) }
     static func interpret(_ text: String) async throws -> Pasted {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -322,13 +319,12 @@ enum PluginInstaller {
             if data.starts(with: [0x50, 0x4B]) { return .plugin(try prepare(bundle: data, origin: t)) }
             if let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 if o["plugins"] != nil || o["cms"] != nil { return .subscription(t) }
-                if o["manifest"] != nil { return .plugin(try prepare(bundle: data, origin: t)) }
                 if o["schema"] != nil { return .plugin(try await prepare(manifestData: data, manifestURL: t, origin: t)) }
             }
-            throw PluginError.install("这个链接不是插件 .zip / manifest.json / 旧版 .idjplugin / 订阅列表")
+            throw PluginError.install("这个链接不是插件 .zip / manifest.json / 订阅列表")
         }
-        guard let data = t.data(using: .utf8) else { throw PluginError.install("无法识别") }
-        return .plugin(try prepare(bundle: data, origin: "粘贴"))
+        // 粘贴的纯文本不再支持旧版 JSON bundle；引导用户用 .zip 或 manifest 网址。
+        throw PluginError.install("请粘贴 .zip 或 manifest.json 的网址，或用「从文件导入」选择 .zip")
     }
 
     static func prepare(manifestURL: String, origin: String) async throws -> PendingInstall {
@@ -344,24 +340,11 @@ enum PluginInstaller {
     }
 
     static func prepare(bundle data: Data, origin: String) throws -> PendingInstall {
-        // 新格式：.zip 包（manifest.json + main.js）。用 PK 魔数识别，走内置 ZipArchive 解压。
-        if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) || data.starts(with: [0x50, 0x4B, 0x05, 0x06]) {
-            return try prepare(zip: data, origin: origin)
+        // 仅支持 .zip 包（manifest.json + 入口脚本）。用 PK 魔数识别，走内置 ZipArchive 解压。
+        guard data.starts(with: [0x50, 0x4B, 0x03, 0x04]) || data.starts(with: [0x50, 0x4B, 0x05, 0x06]) else {
+            throw PluginError.install("不是合法的插件包（需要 .zip，内含 manifest.json 与入口脚本）")
         }
-        // 兼容旧格式：.idjplugin = JSON bundle { "manifest":…, "files":{…} }。
-        let b: PluginBundle
-        do { b = try JSONDecoder().decode(PluginBundle.self, from: data) }
-        catch {
-            if let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let m = o["manifest"] {
-                _ = try PluginManifest.decode(try JSONSerialization.data(withJSONObject: m))
-            }
-            throw PluginError.install("不是合法的插件包（支持 .zip 或旧版 .idjplugin）")
-        }
-        let raw = try JSONSerialization.data(withJSONObject: (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["manifest"] ?? [:])
-        let m = try PluginManifest.decode(raw)
-        guard let js = b.files[m.entry] else { throw PluginError.install("包里缺少入口文件 \(m.entry)") }
-        if b.files.count > 1 { throw PluginError.install("idj1 插件只能有一个脚本文件（不支持 import）") }
-        return try validate(manifest: m, source: Data(js.utf8), origin: origin)
+        return try prepare(zip: data, origin: origin)
     }
 
     /// 从 .zip 包安装：zip 内需含 manifest.json，以及 manifest.entry 指向的脚本（如 main.js）。
@@ -433,26 +416,15 @@ enum PluginInstaller {
         sub.error = nil
     }
 
-    /// Plugins shipped inside the app (Resources/Plugins/*.idjplugin) — offered under 推荐插件, never auto-installed.
+    /// Plugins shipped inside the app (Resources/Plugins/*.zip) — offered under 推荐插件, never auto-installed.
     static func bundled() -> [(name: String, manifest: PluginManifest, data: Data)] {
         guard let root = Bundle.main.resourceURL else { return [] }
         // xcodegen flattens resource groups, so look both in the bundle root and in a Plugins folder.
         let files = [root, root.appendingPathComponent("Plugins")].flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
-        return files.filter { $0.pathExtension == "zip" || $0.pathExtension == "idjplugin" }
+        return files.filter { $0.pathExtension == "zip" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { f in
-                guard let d = try? Data(contentsOf: f) else { return nil }
-                let manifestData: Data?
-                if d.starts(with: [0x50, 0x4B]) {
-                    manifestData = (try? ZipArchive(d))?.data("manifest.json")
-                } else {
-                    var md: Data?
-                    if let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                       let mo = obj?["manifest"] {
-                        md = try? JSONSerialization.data(withJSONObject: mo)
-                    }
-                    manifestData = md
-                }
-                guard let md = manifestData, let m = try? PluginManifest.decode(md) else { return nil }
+                guard let d = try? Data(contentsOf: f), d.starts(with: [0x50, 0x4B]) else { return nil }
+                guard let md = (try? ZipArchive(d))?.data("manifest.json"), let m = try? PluginManifest.decode(md) else { return nil }
                 return (f.deletingPathExtension().lastPathComponent, m, d)
             }
     }
