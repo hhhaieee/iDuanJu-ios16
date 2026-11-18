@@ -266,7 +266,7 @@ struct SpeedPopover: View {
     /// Active core's ceiling (AetherEngine clamps video to 2×; AVPlayer 3×).
     var maxRate: Double = 3
     let onPick: (Double) -> Void
-    static let portraitSteps: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3]
+    static let portraitSteps: [Double] = [1, 1.25, 1.5, 2, 3]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
