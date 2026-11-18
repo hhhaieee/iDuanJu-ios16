@@ -1,7 +1,7 @@
 import SwiftUI
 import AVFoundation
 
-/// Persisted danmaku preferences (hongguo-open-player: enabled / rows / speed / opacity / likes priority) + merge toggle.
+/// Persisted danmaku preferences (hongguo-open-player style: enabled / size / speed / opacity / area).
 @MainActor
 final class DanmakuSettings: ObservableObject {
     static let shared = DanmakuSettings()
@@ -12,51 +12,44 @@ final class DanmakuSettings: ObservableObject {
         /// Seconds to cross the screen.
         var duration: Double { switch self { case .slow: 11; case .medium: 8.5; case .fast: 6.5 } }
     }
+    /// 四档字号（0.8× / 1.0× / 1.25× / 1.5×，基准 16pt）。行数随字号自动决定，不再单独设置。
     enum Size: String, CaseIterable, Identifiable {
-        case small, medium, large
+        case small, medium, large, xlarge
         var id: String { rawValue }
-        var label: String { switch self { case .small: "小"; case .medium: "中"; case .large: "大" } }
-        var points: CGFloat { switch self { case .small: 14; case .medium: 16; case .large: 19 } }
+        var label: String { switch self { case .small: "小 0.8×"; case .medium: "标准 1.0×"; case .large: "大 1.25×"; case .xlarge: "特大 1.5×" } }
+        var points: CGFloat { switch self { case .small: 13; case .medium: 16; case .large: 20; case .xlarge: 24 } }
+        /// 行数跟随字号：小 4 行、标准 3 行、大 2 行、特大 2 行。
+        var rows: Int { switch self { case .small: 4; case .medium: 3; case .large: 2; case .xlarge: 2 } }
     }
 
     /// How much of the screen (below the top bar) danmaku lanes may use.
     enum Area: String, CaseIterable, Identifiable {
         case quarter, third, half, most
         var id: String { rawValue }
-        var label: String { switch self { case .quarter: "1/4"; case .third: "1/3"; case .half: "半屏"; case .most: "3/4" } }
+        var label: String { switch self { case .quarter: "1/4屏"; case .third: "1/3屏"; case .half: "半屏"; case .most: "3/4屏" } }
         var fraction: CGFloat { switch self { case .quarter: 0.25; case .third: 0.34; case .half: 0.5; case .most: 0.75 } }
     }
 
     @Published var enabled: Bool { didSet { save() } }
     @Published var area: Area { didSet { save() } }
-    @Published var merge: Bool { didSet { save() } }
-    @Published var likesPriority: Bool { didSet { save() } }
-    @Published var rows: Int { didSet { save() } }
     @Published var opacity: Double { didSet { save() } }
     @Published var speed: Speed { didSet { save() } }
     @Published var size: Size { didSet { save() } }
     /// Live status of the current episode (not persisted).
     @Published var status = ""
-    /// 设置变更信号：任意一项设置变化都递增，供播放层强制重建弹幕覆盖层。
-    /// 单纯依赖各 rawValue 拼 key 在「值未变/Canvas 停帧」时会漏刷新，这里给出唯一版本。
-    @Published var revision = 0
 
     private let d = UserDefaults.standard
     private init() {
         enabled = d.object(forKey: "stv.dm.enabled") as? Bool ?? true
         area = Area(rawValue: d.string(forKey: "stv.dm.area") ?? "") ?? .third
-        merge = d.object(forKey: "stv.dm.merge") as? Bool ?? true
-        likesPriority = d.object(forKey: "stv.dm.likes") as? Bool ?? true
-        rows = d.object(forKey: "stv.dm.rows") as? Int ?? 4
         opacity = d.object(forKey: "stv.dm.opacity") as? Double ?? 0.85
         speed = Speed(rawValue: d.string(forKey: "stv.dm.speed") ?? "") ?? .medium
         size = Size(rawValue: d.string(forKey: "stv.dm.size") ?? "") ?? .medium
     }
     private func save() {
-        d.set(enabled, forKey: "stv.dm.enabled"); d.set(area.rawValue, forKey: "stv.dm.area"); d.set(merge, forKey: "stv.dm.merge"); d.set(likesPriority, forKey: "stv.dm.likes")
-        d.set(rows, forKey: "stv.dm.rows"); d.set(opacity, forKey: "stv.dm.opacity")
+        d.set(enabled, forKey: "stv.dm.enabled"); d.set(area.rawValue, forKey: "stv.dm.area")
+        d.set(opacity, forKey: "stv.dm.opacity")
         d.set(speed.rawValue, forKey: "stv.dm.speed"); d.set(size.rawValue, forKey: "stv.dm.size")
-        revision &+= 1
     }
 }
 
@@ -117,7 +110,7 @@ enum DanmakuLayout {
         max(duration * Double(wp + 12) / Double(screen + wp), duration * Double(wn + 12) / Double(screen + wn))
     }
 
-    static func layout(_ items: [HGDanmaku], rows: Int, screen: CGFloat, font: CGFloat, duration: Double, likesPriority: Bool) -> [Placed] {
+    static func layout(_ items: [HGDanmaku], rows: Int, screen: CGFloat, font: CGFloat, duration: Double) -> [Placed] {
         let rows = max(1, rows)
         struct C { let item: HGDanmaku; let text: String; let badge: String; let width: CGFloat; let idx: Int }
         var cs: [C] = items.enumerated().map { i, it in
@@ -143,22 +136,7 @@ enum DanmakuLayout {
                     if slack < bestSlack { bestSlack = slack; free = k }
                 }
             }
-            if free >= 0 { tracks[free].append(c); continue }
-            guard likesPriority, c.item.likes + c.item.count > 1 else { continue }
-            let score = c.item.likes + c.item.count - 1
-            var best = -1, minScore = score, maxBlock = -Double.infinity
-            for k in 0..<rows {
-                guard let inc = tracks[k].last else { continue }
-                let incScore = inc.item.likes + inc.item.count - 1
-                if incScore >= score { continue }
-                if tracks[k].count >= 2 {
-                    let before = tracks[k][tracks[k].count - 2]
-                    if c.item.time < before.item.time + requiredGap(before.width, c.width, screen: screen, duration: duration) { continue }
-                }
-                let block = inc.item.time + requiredGap(inc.width, c.width, screen: screen, duration: duration) - c.item.time
-                if incScore < minScore || (incScore == minScore && block > maxBlock) { minScore = incScore; maxBlock = block; best = k }
-            }
-            if best >= 0 { tracks[best].removeLast(); tracks[best].append(c) }
+            if free >= 0 { tracks[free].append(c) }
         }
         var out: [Placed] = []
         for k in 0..<rows { for c in tracks[k] { out.append(Placed(item: c.item, text: c.text, badge: c.badge, lane: k, width: c.width)) } }
@@ -180,7 +158,6 @@ struct DanmakuOverlay: View {
     var laneSpacing: CGFloat = 0
     @State private var raw: [HGDanmaku] = []
     @State private var placed: [DanmakuLayout.Placed] = []
-    @State private var key = ""
     // 必须是 @ObservedObject：否则设置面板改 speed/size/area 时 overlay 不重绘，
     // layoutKey 的 onChange 不触发，表现为「弹幕开着时这几个控件没反应，关掉再开才生效」。
     @ObservedObject private var settings = DanmakuSettings.shared
@@ -198,7 +175,7 @@ struct DanmakuOverlay: View {
                     draw(&ctx, canvas)
                 }
             }
-            .onChange(of: layoutKey(size)) { k in relayout(size, k) }
+            .onChange(of: layoutKeyValue) { _ in relayout(size) }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -211,24 +188,21 @@ struct DanmakuOverlay: View {
     private var rows: Int { max(1, laneCount) }
     static func laneHeight(_ s: DanmakuSettings) -> CGFloat { s.size.points * 1.55 }
 
-    private func layoutKey(_ size: CGSize) -> String {
-        "\(vid)|\(raw.count)|\(Int(size.width))|\(rows)|\(settings.speed.rawValue)|\(settings.size.rawValue)|\(settings.merge)|\(settings.likesPriority)|\(settings.area.rawValue)|\(Int(laneTop))|\(settings.opacity)"
+    private var layoutKeyValue: String {
+        "\(vid)|\(raw.count)|\(settings.speed.rawValue)|\(settings.size.rawValue)|\(settings.area.rawValue)|\(Int(laneTop))|\(settings.opacity)"
     }
 
-    private func relayout(_ size: CGSize, _ k: String) {
-        guard size.width > 0, k != key else { return }
-        key = k
-        let src = settings.merge ? DanmakuMerger.merge(raw) : raw
-        placed = DanmakuLayout.layout(src, rows: rows, screen: size.width, font: font,
-                                      duration: settings.speed.duration, likesPriority: settings.likesPriority)
+    private func relayout(_ size: CGSize) {
+        guard size.width > 0 else { return }
+        placed = DanmakuLayout.layout(raw, rows: rows, screen: size.width, font: font,
+                                      duration: settings.speed.duration)
         if !raw.isEmpty {
-            settings.status = settings.merge ? "本集 \(raw.count) 条 · 合并后 \(src.count) 条 · 上屏 \(placed.count) 条"
-                                             : "本集 \(raw.count) 条 · 上屏 \(placed.count) 条"
+            settings.status = "本集 \(raw.count) 条 · 上屏 \(placed.count) 条"
         }
     }
 
     private func load() async {
-        raw = []; placed = []; key = ""
+        raw = []; placed = []
         settings.status = "弹幕加载中…"
         let r = await HGDanmakuClient.shared.fetch(seriesId: seriesId, vid: vid)
         guard !Task.isCancelled else { return }
@@ -291,7 +265,7 @@ struct DanmakuPreview: View {
     private func lanes(height: CGFloat) -> (count: Int, spacing: CGFloat) {
         let usable = max(0, height - 8)
         let regionHeight = max(laneHeight, usable * settings.area.fraction)
-        let count = max(1, min(settings.rows, Int(regionHeight / max(1, laneHeight))))
+        let count = max(1, min(settings.size.rows, Int(regionHeight / max(1, laneHeight))))
         let spacing = min(usable, max(laneHeight, regionHeight / CGFloat(count)))
         return (count, spacing)
     }
@@ -356,57 +330,57 @@ struct DanmakuSettingsSheet: View {
                 if !available {
                     Text("当前片源不支持弹幕（仅红果）").font(.footnote).foregroundStyle(STVTheme.secondary)
                 }
-                Toggle("显示弹幕", isOn: $settings.enabled)
+                Toggle(isOn: $settings.enabled) {
+                    Text("显示弹幕")
+                }
 
-                // 实时预览：不受「显示弹幕」开关影响，改任意一项立刻可见（解决关弹幕时控件无反馈）。
+                // 实时预览：不受「显示弹幕」开关影响，改任意一项立刻可见。
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("效果预览").font(.subheadline.weight(.semibold))
                         Spacer()
-                        Text("关着弹幕也能调，改了立即生效").font(.caption).foregroundStyle(STVTheme.secondary)
+                        Text("改了立即生效").font(.caption).foregroundStyle(STVTheme.secondary)
                     }
                     DanmakuPreview(settings: settings)
                 }
-                Toggle(isOn: $settings.merge) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("合并重复弹幕")
-                        Text("相近时间内相同/相似的弹幕合成一条，显示 ×次数").font(.caption).foregroundStyle(STVTheme.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("字体大小").font(.subheadline)
+                        Spacer()
+                        // 行数随字号自动决定，不再单独设置。
+                        Text("\(settings.size.rows) 行").font(.caption).foregroundStyle(STVTheme.secondary)
                     }
+                    Picker("字体大小", selection: $settings.size) {
+                        ForEach(DanmakuSettings.Size.allCases) { Text($0.label).tag($0) }
+                    }.pickerStyle(.segmented)
+                    Text("小 4 行 · 标准 3 行 · 大 2 行 · 特大 2 行").font(.caption2).foregroundStyle(STVTheme.secondary)
                 }
-                Toggle(isOn: $settings.likesPriority) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("高赞优先")
-                        Text("轨道拥挤时优先显示点赞多的弹幕").font(.caption).foregroundStyle(STVTheme.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("不透明度").font(.subheadline)
+                        Spacer()
+                        Text("\(Int(settings.opacity * 100))%").font(.caption).foregroundStyle(STVTheme.secondary)
                     }
+                    Picker("不透明度", selection: $settings.opacity) {
+                        Text("40%").tag(0.4)
+                        Text("60%").tag(0.6)
+                        Text("80%").tag(0.8)
+                        Text("100%").tag(1.0)
+                    }.pickerStyle(.segmented)
                 }
-                Stepper("显示行数：\(settings.rows)", value: $settings.rows, in: 1...8)
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("显示区域")
-                        Text("从屏幕顶部（顶栏下方）算起，不会遮挡底部控件").font(.caption).foregroundStyle(STVTheme.secondary)
-                    }
+                    Text("显示区域").font(.subheadline)
                     Spacer()
                     Picker("显示区域", selection: $settings.area) {
                         ForEach(DanmakuSettings.Area.allCases) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).frame(width: 200)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("不透明度：\(Int(settings.opacity * 100))%")
-                    Slider(value: $settings.opacity, in: 0.2...1).tint(STVTheme.accent)
+                    }.pickerStyle(.segmented).frame(width: 220)
                 }
                 HStack {
-                    Text("滚动速度")
+                    Text("滚动速度").font(.subheadline)
                     Spacer()
                     Picker("滚动速度", selection: $settings.speed) {
                         ForEach(DanmakuSettings.Speed.allCases) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).frame(width: 180)
-                }
-                HStack {
-                    Text("字号")
-                    Spacer()
-                    Picker("字号", selection: $settings.size) {
-                        ForEach(DanmakuSettings.Size.allCases) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).frame(width: 180)
+                    }.pickerStyle(.segmented).frame(width: 160)
                 }
                 if !settings.status.isEmpty {
                     Text(settings.status).font(.caption).foregroundStyle(STVTheme.secondary)
