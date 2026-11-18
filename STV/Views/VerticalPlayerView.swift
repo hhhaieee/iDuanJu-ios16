@@ -362,7 +362,9 @@ struct PlayerScreen: View {
                                       area: danmaku.area.fraction, laneHeight: DanmakuOverlay.laneHeight(danmaku), maxRows: danmaku.rows)
         // 设置任意一项变化即强制重建 overlay：重新 load（命中 5 分钟缓存，几乎无感）并按新参数
         // 重排重绘。绕开 TimelineView 在 paused（暂停看弹幕）/Canvas 缓存下改设置不生效的链路。
-        let dmKey = "\(danmaku.area.rawValue)|\(danmaku.rows)|\(danmaku.speed.rawValue)|\(danmaku.size.rawValue)|\(danmaku.merge)|\(danmaku.likesPriority)|\(Int(danmaku.opacity * 100))"
+        // revision 是任意设置变化都会递增的唯一版本；把它纳入 key 确保设置面板一改动
+        // 就强制重建覆盖层，绕开「值未变 / TimelineView 暂停停帧 / Canvas 缓存」导致的漏刷新。
+        let dmKey = "\(danmaku.revision)|\(danmaku.area.rawValue)|\(danmaku.rows)|\(danmaku.speed.rawValue)|\(danmaku.size.rawValue)|\(danmaku.merge)|\(danmaku.likesPriority)|\(Int(danmaku.opacity * 100))"
         return DanmakuOverlay(co: co, seriesId: series.seriesId, vid: co.episodes[i].vid, landscape: landscape, laneTop: r.top, laneCount: r.rows)
             .id(dmKey)
             .frame(width: full.width, height: full.height)
