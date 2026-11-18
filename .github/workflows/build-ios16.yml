@@ -62,8 +62,9 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build62 弹幕设置精简/字号四档行数联动/开着弹幕改设置即时生效"
-          NOTES="build62: 弹幕设置面板精简——删除「合并重复弹幕」「高赞优先」「显示行数」，行数随字号自动(小4行·标准3行·大2行·特大2行)，字号改四档(0.8×/1.0×/1.25×/1.5×)、不透明度四档(40/60/80/100%) · 修「开着弹幕改设置不生效」：不再整层重建弹幕(重建会清空弹幕并重走网络)，设置变化在内存即时重排重绘"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build63 弹幕卡片紧凑化/面板期间冻结弹幕重绘修卡顿"
+          NOTES="build63: 弹幕设置卡片按参考样式紧凑化——竖屏约 520pt 卡片(标题+关闭按钮+四组分段控件+96pt 预览)，去掉冗长说明文字 · 修「开着弹幕调设置卡顿、按钮时灵时不灵」：面板打开期间冻结播放器弹幕逐帧重绘(关闭面板自动恢复)，弹幕层日常帧率 60→30fps 降低渲染开销"
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
             gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
