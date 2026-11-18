@@ -95,12 +95,14 @@ enum VideoDownloadService {
         }
     }
 
-    /// 直下 HLS 分片 → 本地 AES-128 解密 → 拼接明文 TS → 从本地文件 remux 成 MP4。
-    /// 导出器只读一个本地明文 TS，不再经过代理 / 带外 key（iOS 16 上那条链路时序不可靠）。
+    /// 直下 HLS 分片 → 本地 AES-128 解密 → 每片独立落盘 → 生成本地 m3u8 → 系统按 HLS 语义重编码导出 MP4。
+    /// 关键：不再把多个分片拼成一个裸 TS。黄果等源的分片是 fMP4/CMAF（moof+mdat box），拼接后缺 init 段，
+    /// AVAssetReader 会以 -11828 FormatNotRecognized 打不开。保留分片边界并让 AVFoundation 按 m3u8 语义读取，
+    /// TS 与 fMP4 都能正确处理。
     private static func exportHLS(_ stream: HGStream, to dest: URL, progress: (@Sendable (Double) -> Void)?) async throws {
         guard let playlistURL = URL(string: stream.url) else { throw DownloadError.badURL }
 
-        // 1) 拉 playlist（必要时 master → 码率最高的 variant），再过一遍广告过滤。
+        // 1) 拉 playlist（master → 码率最高的 variant）+ 广告过滤。
         var text = String(decoding: try await fetchBytes(playlistURL, headers: stream.headers), as: UTF8.self)
         if !text.localizedCaseInsensitiveContains("#EXTINF"),
            let variant = pickVariant(text, base: playlistURL) {
@@ -109,13 +111,17 @@ enum VideoDownloadService {
         text = HLSAdFilter.apply(text, base: playlistURL)
         if Task.isCancelled { throw DownloadError.cancelled }
 
-        // 2) 解析 KEY / MEDIA-SEQUENCE / 分片行。
+        // 2) 解析 KEY / MEDIA-SEQUENCE / EXT-X-MAP / 分片行（带时长与原始序号用于 IV）。
         var seqBase: Int64 = 0
         var explicitIV: Data?
         var keyURI: URL?
         var method = ""
-        var segments: [URL] = []
+        var initURI: URL?
+        var initRange: ClosedRange<Int>?
+        struct Seg { let url: URL; let duration: Double; let sequence: Int64 }
+        var segments: [Seg] = []
         var expectSegment = false
+        var pendingDuration = 6.0
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
             let up = line.uppercased()
@@ -127,11 +133,23 @@ enum VideoDownloadService {
                    let b = Bytes.fromHex(m[1]), b.count == 16 { explicitIV = Data(b) }
                 if let m = HTML.groups("URI\\s*=\\s*\"([^\"]+)\"", line),
                    let u = URL(string: m[1], relativeTo: playlistURL)?.absoluteURL { keyURI = u }
+            } else if up.hasPrefix("#EXT-X-MAP") {
+                if let m = HTML.groups("URI\\s*=\\s*\"([^\"]+)\"", line),
+                   let u = URL(string: m[1], relativeTo: playlistURL)?.absoluteURL { initURI = u }
+                if let m = HTML.groups("BYTERANGE\\s*=\\s*\"(\\d+)@(\\d+)\"", line),
+                   let len = Int(m[1]), let off = Int(m[2]), len > 0 { initRange = off...(off + len - 1) }
             } else if up.hasPrefix("#EXTINF") {
+                let v = line.split(separator: ":").last?.split(separator: ",").first ?? ""
+                pendingDuration = Double(v) ?? 6.0
                 expectSegment = true
             } else if !line.isEmpty, !line.hasPrefix("#"), expectSegment {
                 expectSegment = false
-                if let u = URL(string: line, relativeTo: playlistURL)?.absoluteURL { segments.append(u) }
+                if let u = URL(string: line, relativeTo: playlistURL)?.absoluteURL {
+                    // HLS 规范：无显式 IV 时，分片序号 = MEDIA-SEQUENCE + 播放列表内索引。
+                    segments.append(Seg(url: u, duration: pendingDuration > 0 ? pendingDuration : 6.0,
+                                        sequence: seqBase + Int64(segments.count)))
+                }
+                pendingDuration = 6.0
             }
         }
         guard !segments.isEmpty else { throw DownloadError.noStream }
@@ -144,73 +162,113 @@ enum VideoDownloadService {
             if kd.count == 16 { key = kd }
         }
         let encrypted = method == "AES-128" && key != nil
+        // 不可变快照：供下方同步嵌套函数捕获，避免 async 上下文捕获可变 var 的并发告警。
+        let finalKey = key, finalIV = explicitIV, isEncrypted = encrypted
 
-        // 4) 逐片下载 → 去伪头 → AES-128-CBC 解密 → 追加进本地明文 TS。
-        let merged = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".ts")
-        defer { try? FileManager.default.removeItem(at: merged) }
-        FileManager.default.createFile(atPath: merged.path, contents: nil)
-        guard let handle = try? FileHandle(forWritingTo: merged) else {
-            throw DownloadError.exportFailed("无法创建临时文件")
+        // 4) 逐片下载 → 去伪头 → AES-128-CBC 解密 → 每个分片独立落盘（保留分片边界，
+        //    供本地 m3u8 按 HLS 语义读取；fMP4 分片靠 EXT-X-MAP 的 init 段还原容器）。
+        let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        func segIV(_ sequence: Int64) -> Data {
+            if let explicit = finalIV { return explicit }
+            let s = sequence.bigEndian
+            return Data(repeating: 0, count: 8) + withUnsafeBytes(of: s) { Data($0) }
         }
-        defer { try? handle.close() }
+        // 解密后核对魔数：TS 以 0x47 起，fMP4/MP4 在偏移 4 处是 ftyp/moof/moov/styp/sidx。
+        // 若解密结果不像媒体（说明该片本来就没加密或 IV 不对），退回未解密字节，避免把密文喂给系统。
+        func looksLikeMedia(_ d: Data) -> Bool {
+            let b = [UInt8](d.prefix(16))
+            guard b.count >= 8 else { return false }
+            if b[0] == 0x47 { return true }
+            if b.count >= 12 {
+                let tag = String(bytes: b[4..<8], encoding: .ascii) ?? ""
+                if ["ftyp", "moof", "moov", "styp", "sidx", "free"].contains(tag) { return true }
+            }
+            return false
+        }
+        func decrypted(_ raw: Data, sequence: Int64) -> Data {
+            let stripped = LocalHLSProxy.stripFakeHeader(raw)
+            guard isEncrypted, let k = finalKey else { return stripped }
+            if let clear = LocalHLSProxy.aesCBCDecrypt(stripped, key: k, iv: segIV(sequence)), looksLikeMedia(clear) {
+                return clear
+            }
+            return stripped
+        }
+
+        // init segment（fMP4/CMAF 必需）：解析到的 EXT-X-MAP 单独下载解密并落盘。
+        var initName: String?
+        if let iu = initURI {
+            let initData = try await fetchBytes(iu, headers: stream.headers)
+            var payload = initData
+            if let rg = initRange {
+                let lo = max(0, rg.lowerBound)
+                let hi = min(initData.count - 1, rg.upperBound)
+                if lo <= hi { payload = initData.subdata(in: lo...hi) }
+            }
+            let clear = decrypted(payload, sequence: seqBase)
+            let name = "init.mp4"
+            try clear.write(to: tmpDir.appendingPathComponent(name))
+            initName = name
+        }
 
         let total = Double(segments.count)
+        var segNames: [String] = []
         for (i, seg) in segments.enumerated() {
             if Task.isCancelled { throw DownloadError.cancelled }
-            var chunk = LocalHLSProxy.stripFakeHeader(try await fetchBytes(seg, headers: stream.headers))
-            if encrypted, let k = key {
-                let segIV: Data
-                if let explicit = explicitIV { segIV = explicit }
-                else {
-                    // HLS 规范：无 IV 时用 media sequence number 作 128-bit 大端整数。
-                    let s = (seqBase + Int64(i)).bigEndian
-                    segIV = Data(repeating: 0, count: 8) + withUnsafeBytes(of: s) { Data($0) }
-                }
-                guard let clear = LocalHLSProxy.aesCBCDecrypt(chunk, key: k, iv: segIV) else {
-                    throw DownloadError.exportFailed("分片解密失败")
-                }
-                chunk = clear
-            }
-            try handle.write(contentsOf: chunk)
+            let raw = try await fetchBytes(seg.url, headers: stream.headers)
+            let clear = decrypted(raw, sequence: seg.sequence)
+            let isFMP4 = { () -> Bool in
+                let b = [UInt8](clear.prefix(12))
+                guard b.count >= 8, b[0] != 0x47 else { return false }
+                let tag = String(bytes: b[4..<8], encoding: .ascii) ?? ""
+                return ["ftyp", "moof", "styp", "sidx"].contains(tag)
+            }()
+            let name = String(format: "seg_%05d.%@", i, isFMP4 ? "m4s" : "ts")
+            try clear.write(to: tmpDir.appendingPathComponent(name))
+            segNames.append(name)
             progress?(0.05 + 0.85 * Double(i + 1) / total)
         }
-        try handle.close()
         if Task.isCancelled { throw DownloadError.cancelled }
 
-        // 5) 从本地明文 TS remux 成 MP4。
-        //    iOS 16 的 AVAssetExportSession 对「分片拼接 TS」的 passthrough 极不稳定（用户看到的
-        //    「导出失败：这项操作无法完成」就卡在这一步）。改用 AVAssetReader/Writer 逐 sample 直拷：
-        //    不解码、不重编码、不生成新时间戳，最快且保画质；Reader/Writer 也不行时再回退到
-        //    AVAssetExportSession 重编码导出，确保尽量产出可播放的 MP4。
+        // 5) 生成本地 m3u8：分片已解密，故不写 EXT-X-KEY；若有 init 段则补 EXT-X-MAP。
+        var local = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:30\n"
+        local += "#EXT-X-MEDIA-SEQUENCE:0\n"
+        if let initName = initName { local += "#EXT-X-MAP:URI=\"\(initName)\"\n" }
+        for (i, name) in segNames.enumerated() {
+            local += "#EXTINF:\(String(format: "%.3f", segments[i].duration)),\n\(name)\n"
+        }
+        local += "#EXT-X-ENDLIST\n"
+        let localPlist = tmpDir.appendingPathComponent("local.m3u8")
+        try local.write(to: localPlist, atomically: true, encoding: .utf8)
+
+        // 6) 用系统按本地 m3u8 语义读取并重编码导出。fMP4 / TS 分片都能被正确组装；
+        //    重编码 preset 规避 passthrough 产出空壳（9 KB 只有 moov）的老问题。
         progress?(0.92)
-        let asset = AVURLAsset(url: merged)
-        do {
-            try await remuxByReaderWriter(asset, to: dest)
-        } catch {
-            // 透传 remux 的真实错误（domain + code + 描述），避免被回退导出的
-            // 通用文案「这项操作无法完成」吞掉——下次若仍失败可据此精确定位。
-            let ne = error as NSError
-            let remuxDetail = "\(ne.domain)(\(ne.code)) \(ne.localizedDescription)"
-            var last: Error = error
-            for preset in [AVAssetExportPresetHighestQuality, AVAssetExportPresetPassthrough] {
-                if Task.isCancelled { throw DownloadError.cancelled }
-                try? FileManager.default.removeItem(at: dest)
-                guard let ex = AVAssetExportSession(asset: asset, presetName: preset) else { continue }
-                ex.outputURL = dest
-                ex.outputFileType = .mp4
-                ex.shouldOptimizeForNetworkUse = false
-                do { try await ex.export() }
-                catch is CancellationError { throw DownloadError.cancelled }
-                catch { last = error; continue }
-                if ex.status == .completed { progress?(1); return }
-                last = ex.error ?? last
-            }
-            let le = last as NSError
-            throw DownloadError.exportFailed("重编码失败[\(remuxDetail)]；回退失败[\(le.domain)(\(le.code)) \(le.localizedDescription)]")
+        let asset = AVURLAsset(url: localPlist)
+        var last: Error = DownloadError.exportFailed("未知导出错误")
+        var exported = false
+        for preset in [AVAssetExportPresetHighestQuality, AVAssetExportPresetPassthrough] {
+            if Task.isCancelled { throw DownloadError.cancelled }
+            try? FileManager.default.removeItem(at: dest)
+            guard let ex = AVAssetExportSession(asset: asset, presetName: preset) else { continue }
+            ex.outputURL = dest
+            ex.outputFileType = .mp4
+            ex.shouldOptimizeForNetworkUse = false
+            do { try await ex.export() }
+            catch is CancellationError { throw DownloadError.cancelled }
+            catch { last = error; continue }
+            if ex.status == .completed { exported = true; break }
+            last = ex.error ?? last
+        }
+        guard exported else {
+            let e = last as NSError
+            throw DownloadError.exportFailed("本地 HLS 导出失败[\(e.domain)(\(e.code)) \(e.localizedDescription)]")
         }
         guard FileManager.default.fileExists(atPath: dest.path) else { throw DownloadError.emptyData }
-        // 空壳校验：重编码可能「完成」但写出 0 帧（典型 9 KB 只有 moov）。用 AVAsset 复核时长，
-        // 时长无效或过小一律判失败，避免坏文件被当成下载成功、也无法存相册。
+
+        // 空壳校验：导出「完成」但写出 0 帧时，用 AVAsset 复核时长，避免坏文件被当成成功。
         let probe = AVURLAsset(url: dest)
         let dur = try? await probe.load(.duration)
         let seconds = dur?.seconds ?? 0
@@ -219,146 +277,6 @@ enum VideoDownloadService {
             throw DownloadError.exportFailed("导出文件无有效画面（时长异常）")
         }
         progress?(1)
-    }
-
-    /// 解码 → 重编码 remux：把明文 TS 的音视频解码为原始帧，再编码写进 MP4。
-    /// 关键：TS 里的 H.264/AAC 用 passthrough（outputSettings: nil）直拷进 MP4，
-    /// 在 iOS 16 上会产出只有 moov 头、没有 mdat 的「空壳」文件（典型 9 KB，看似成功却无法播放/存相册）。
-    /// 解码重编码兼容性最好；同时统计实际写入帧数，零帧一律判失败，杜绝空壳被误判成功。
-    private static func remuxByReaderWriter(_ asset: AVAsset, to dest: URL) async throws {
-        let reader = try AVAssetReader(asset: asset)
-        let writer = try AVAssetWriter(outputURL: dest, fileType: .mp4)
-
-        // 视频：解码为 BGRA 像素 → 重编码 H.264，保留方向变换。
-        var videoOut: AVAssetReaderTrackOutput?
-        var videoIn: AVAssetWriterInput?
-        if let vt = asset.tracks(withMediaType: .video).first {
-            let decode: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-            let out = AVAssetReaderTrackOutput(track: vt, outputSettings: decode)
-            out.alwaysCopiesSampleData = false
-            let transform = vt.preferredTransform
-            let disp = vt.naturalSize.applying(transform)
-            let w = max(2, Int(abs(disp.width))), h = max(2, Int(abs(disp.height)))
-            let encode: [String: Any] = [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: w,
-                AVVideoHeightKey: h,
-                AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 2_000_000]
-            ]
-            let input = AVAssetWriterInput(mediaType: .video, outputSettings: encode)
-            input.expectsMediaDataInRealTime = false
-            input.transform = transform
-            if reader.canAdd(out), writer.canAdd(input) {
-                reader.add(out); writer.add(input)
-                videoOut = out; videoIn = input
-            }
-        }
-
-        // 音频：解码为 44.1k/2ch LinearPCM → 重编码 AAC。
-        var audioOut: AVAssetReaderTrackOutput?
-        var audioIn: AVAssetWriterInput?
-        if let at = asset.tracks(withMediaType: .audio).first {
-            let decode: [String: Any] = [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 44100,
-                AVNumberOfChannelsKey: 2
-            ]
-            let out = AVAssetReaderTrackOutput(track: at, outputSettings: decode)
-            out.alwaysCopiesSampleData = false
-            let encode: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 44100,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 128000
-            ]
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: encode)
-            input.expectsMediaDataInRealTime = false
-            if reader.canAdd(out), writer.canAdd(input) {
-                reader.add(out); writer.add(input)
-                audioOut = out; audioIn = input
-            }
-        }
-
-        guard videoIn != nil || audioIn != nil else { throw DownloadError.exportFailed("无可用音视频轨道") }
-        guard reader.startReading(), writer.startWriting() else {
-            throw DownloadError.exportFailed("无法启动导出")
-        }
-        writer.startSession(atSourceTime: .zero)
-
-        struct Lane { let input: AVAssetWriterInput; let output: AVAssetReaderTrackOutput }
-        var lanes: [Lane] = []
-        if let vIn = videoIn, let vOut = videoOut { lanes.append(Lane(input: vIn, output: vOut)) }
-        if let aIn = audioIn, let aOut = audioOut { lanes.append(Lane(input: aIn, output: aOut)) }
-
-        let written = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int, Error>) in
-            let group = DispatchGroup()
-            let lock = NSLock()
-            var failure: Error?
-            var count = 0
-            // 拼接 TS 的各分片沿用源 PTS，常有回退/重叠/不从 0 起，直接 append 会让
-            // AVAssetWriter 中途进入 failed（「这项操作无法完成」）。这里不沿用源 PTS，
-            // 每条轨道独立从 0 起按 buffer 自身时长累加，生成严格单调的新时间戳。
-            class Clock {
-                var t: CMTime = .zero
-                let lock = NSLock()
-                func next(_ d: CMTime) -> CMTime {
-                    lock.lock(); defer { lock.unlock() }
-                    let dur = d.isValid && d.seconds > 0 ? d : CMTime(value: 1, timescale: 30)
-                    let pts = t
-                    t = t + dur
-                    return pts
-                }
-            }
-            for (i, lane) in lanes.enumerated() {
-                group.enter()
-                let clock = Clock()
-                lane.input.requestMediaDataWhenReady(on: DispatchQueue(label: "stv.remux.\(i)")) {
-                    while lane.input.isReadyForMoreMediaData {
-                        guard let buf = lane.output.copyNextSampleBuffer() else {
-                            lane.input.markAsFinished()
-                            group.leave()
-                            return
-                        }
-                        // 重打时间戳：新 PTS = 该轨单调游标；decode 时间置无效。
-                        let dur = CMSampleBufferGetDuration(buf)
-                        let pts = clock.next(dur)
-                        var newTiming = CMSampleTimingInfo(
-                            duration: dur.isValid && dur.seconds > 0 ? dur : CMTime(value: 1, timescale: 30),
-                            presentationTimeStamp: pts,
-                            decodeTimeStamp: .invalid
-                        )
-                        var rebuilt: CMSampleBuffer?
-                        let st = CMSampleBufferCreateCopyWithNewTiming(
-                            allocator: nil, sampleBuffer: buf,
-                            sampleTimingEntryCount: 1, sampleTimingArray: &newTiming,
-                            sampleBufferOut: &rebuilt
-                        )
-                        let toAppend: CMSampleBuffer = (st == noErr && rebuilt != nil) ? rebuilt! : buf
-                        if !lane.input.append(toAppend) {
-                            lock.lock()
-                            failure = writer.error ?? DownloadError.exportFailed("写入媒体数据失败")
-                            lock.unlock()
-                            lane.input.markAsFinished()
-                            group.leave()
-                            return
-                        }
-                        lock.lock(); count += 1; lock.unlock()
-                    }
-                }
-            }
-            group.notify(queue: .main) {
-                if let e = failure {
-                    writer.cancelWriting()
-                    cont.resume(throwing: e)
-                    return
-                }
-                writer.finishWriting { cont.resume(returning: count) }
-            }
-        }
-        guard writer.status == .completed else {
-            throw DownloadError.exportFailed(writer.error?.localizedDescription ?? "导出未完成")
-        }
-        guard written > 0 else { throw DownloadError.exportFailed("未写出任何媒体帧") }
     }
 
     /// 下载字节（带 headers + UA），取消归一为 DownloadError.cancelled。
