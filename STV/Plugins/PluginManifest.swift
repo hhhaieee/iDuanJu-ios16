@@ -23,6 +23,8 @@ struct PluginManifest: Codable, Hashable {
         var cloudflare: Bool?
         var storage: Bool?
         var login: Bool?
+        /// 聚合类插件：允许播放任意 https 媒体流（仅放行播放地址，不放行脚本网络访问）。
+        var allowAnyMedia: Bool?
     }
     struct Setting: Codable, Hashable, Identifiable {
         var key: String
@@ -67,6 +69,7 @@ struct PluginManifest: Codable, Hashable {
     var allowsCF: Bool { permissions.cloudflare ?? false }
     var allowsStorage: Bool { permissions.storage ?? false }
     var allowsLogin: Bool { permissions.login ?? false }
+    var allowsAnyMedia: Bool { permissions.allowAnyMedia ?? false }
 
     static func decode(_ data: Data) throws -> PluginManifest {
         if let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let c = o["compat"] as? String, c != "idj1" {
@@ -181,6 +184,7 @@ struct PermissionDiff: Hashable {
         flag("允许过 Cloudflare 验证", old.allowsCF, new.allowsCF)
         flag("插件私有存储", old.allowsStorage, new.allowsStorage)
         flag("请你登录该站点", old.allowsLogin, new.allowsLogin)
+        flag("播放任意媒体的能力", old.allowsAnyMedia, new.allowsAnyMedia)
         flag("成人内容", old.adult, new.adult)
         if old.type != new.type { flags.append("新增：类型改为 \(new.type.label)") }
     }

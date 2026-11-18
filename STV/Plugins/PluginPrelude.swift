@@ -20,11 +20,15 @@ enum PluginPrelude {
     has: (cap) => call('host.has', { cap: String(cap) }),
     http: {
       request: async (o) => call('http.request', o || {}),
+      requestSync: (o) => call('http.request', o || {}),
       get: async (url, o) => call('http.request', opt(o, { url: String(url) })),
       post: async (url, body, o) => call('http.request', opt(o, { url: String(url), method: 'POST', body: body })),
       allowed: (url) => call('http.allowed', { url: String(url) })
     },
-    html: { parse: (text, baseUrl) => node(call('html.parse', { text: text == null ? '' : String(text), base: baseUrl ? String(baseUrl) : '' })) },
+    html: {
+      parse: (text, baseUrl) => node(call('html.parse', { text: text == null ? '' : String(text), base: baseUrl ? String(baseUrl) : '' })),
+      toTree: (text) => call('html.toTree', { id: call('html.parse', { text: text == null ? '' : String(text) }) })
+    },
     url: {
       resolve: (base, rel) => call('url.resolve', { base: String(base), rel: String(rel) }),
       encodeForm: (obj) => Object.keys(obj || {}).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(obj[k] == null ? '' : String(obj[k]))).join('&')

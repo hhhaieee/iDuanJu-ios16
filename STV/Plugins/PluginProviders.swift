@@ -358,10 +358,15 @@ struct JSVideoProvider: SiteProvider {
         guard let rec = PluginStore.snapshot(pluginID) else { throw ProviderError.invalid("插件未安装") }
         let media = DomainPolicy(rec.manifest.mediaDomains + rec.manifest.httpDomains + rec.extraDomains)
         var streams: [HGStream] = []
+        let anyMedia = rec.manifest.allowsAnyMedia
         for (i, st) in ((o["streams"] as? [[String: Any]]) ?? []).prefix(12).enumerated() {
             let u = PluginOut.url(st["url"])
-            guard let url = URL(string: u), let host = url.host, url.scheme == "https", media.allows(host), !NetGuard.isIPLiteral(host) else {
-                PluginLog.add(pluginID, "✕ 丢弃未授权/非 https 的流地址 \(URL(string: u)?.host ?? u.prefix(40).description)")
+            guard let url = URL(string: u), let host = url.host, url.scheme == "https", !NetGuard.isIPLiteral(host) else {
+                PluginLog.add(pluginID, "✕ 丢弃非 https 的流地址 \(URL(string: u)?.host ?? u.prefix(40).description)")
+                continue
+            }
+            if !anyMedia && !media.allows(host) {
+                PluginLog.add(pluginID, "✕ 丢弃未授权的流地址 \(host)")
                 continue
             }
             let fmt = (st["format"] as? String) ?? (u.contains(".m3u8") ? "hls" : "mp4")

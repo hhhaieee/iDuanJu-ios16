@@ -121,7 +121,7 @@ struct PluginsView: View {
         .sheet(isPresented: $showPaste) { PasteSheet { text in showPaste = false; if let text { interpret(text) } } }
         .sheet(isPresented: $showCMS) { AddCMSSheet { showCMS = false; if let m = $0 { message = m } } }
         .sheet(isPresented: $showFile) {
-            NativeDocumentPicker(contentTypes: [.idjplugin, .json, .plainText, .data]) { url in
+            NativeDocumentPicker(contentTypes: [.idjplugin]) { url in
                 let ok = url.startAccessingSecurityScopedResource()
                 defer { if ok { url.stopAccessingSecurityScopedResource() } }
                 guard let d = try? Data(contentsOf: url), d.count < 4 << 20 else {

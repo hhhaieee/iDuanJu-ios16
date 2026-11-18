@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build75 插件/备份改原生文件选择器直选"
-          NOTES="build75: 基于稳定的 build71 代码，仅改造文件选择方式。① 插件导入、备份恢复统一改用 UIKit 原生 UIDocumentPickerViewController（与 guoapp 同款），点按钮直接弹出系统文件列表点选 .idjplugin / .idjbackup，解决侧载下 SwiftUI 选择器点了没反应的问题；② 删除 PluginImports / Backups 文件夹扫描中间步骤，无额外选择路径；③ 保留 build71 的旧格式与全部播放器/弹幕优化。备份导出后直接弹系统分享面板保存到文件 App。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build76 内置爱看机器人影视插件 + 文件选择只显对应格式"
+          NOTES="build76: ① 新增内置插件「爱看机器人」（ikanbot，全网聚合搜索影视源，多线路 m3u8 播放，基于 guoapp 开源模块适配），在插件页「推荐插件」点安装即可用；② 插件沙箱新增 html.toTree（节点树）与同步 HTTP 能力，视频插件支持 allowAnyMedia 声明以播放动态 CDN 线路；③ 文件选择器收窄：插件只显示 .idjplugin、备份只显示 .idjbackup，其他格式置灰；④ 沿用 build75 的原生文件选择器与全部播放器/弹幕优化。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

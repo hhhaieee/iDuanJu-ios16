@@ -249,4 +249,63 @@ final class HTMLSession {
         guard let content = xmlBufferContent(buf) else { return "" }
         return String(cString: content)
     }
+
+    /// 把节点导出成完整的 JS 节点树 {tag, attrs, text, children}，供需要递归遍历 DOM 的插件使用。
+    /// `text` 只含直接文本子节点（不含后代元素文字），避免与 children 的 text 重复。
+    func toTree(_ id: Int, maxNodes: Int = 60_000) throws -> [String: Any] {
+        var budget = maxNodes
+        func directText(_ n: xmlNodePtr) -> String {
+            var s = ""
+            var c = n.pointee.children
+            while let ch = c {
+                if ch.pointee.type == XML_TEXT_NODE || ch.pointee.type == XML_CDATA_SECTION_NODE,
+                   let content = xmlNodeGetContent(ch) {
+                    s += String(cString: content)
+                    xmlFree(content)
+                }
+                c = ch.pointee.next
+            }
+            return s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        }
+        func attrs(_ n: xmlNodePtr) -> [String: String] {
+            var out: [String: String] = [:]
+            var p = n.pointee.properties
+            while let a = p {
+                if let name = a.pointee.name, let v = xmlGetProp(n, name) {
+                    out[String(cString: name).lowercased()] = String(cString: v)
+                    xmlFree(v)
+                }
+                p = a.pointee.next
+            }
+            return out
+        }
+        func walk(_ n: xmlNodePtr) -> [String: Any] {
+            budget -= 1
+            var nodeOut: [String: Any] = [:]
+            if n.pointee.type == XML_ELEMENT_NODE {
+                nodeOut["tag"] = n.pointee.name.map { String(cString: $0).lowercased() } ?? ""
+                nodeOut["attrs"] = attrs(n)
+            } else {
+                nodeOut["tag"] = ""
+                nodeOut["attrs"] = [String: String]()
+            }
+            nodeOut["text"] = directText(n)
+            var kids: [[String: Any]] = []
+            var c = n.pointee.children
+            while let ch = c {
+                if budget > 0, ch.pointee.type == XML_ELEMENT_NODE || ch.pointee.type == XML_CDATA_SECTION_NODE {
+                    kids.append(walk(ch))
+                }
+                c = ch.pointee.next
+            }
+            nodeOut["children"] = kids
+            return nodeOut
+        }
+        let root = try node(id)
+        // 文档节点从根元素开始，避免把 <!DOCTYPE> 等无关节点带进来。
+        if root.pointee.type == XML_HTML_DOCUMENT_NODE, let el = xmlDocGetRootElement(root.pointee.doc) {
+            return walk(el)
+        }
+        return walk(root)
+    }
 }

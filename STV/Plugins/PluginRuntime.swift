@@ -78,12 +78,13 @@ final class PluginHostContext: @unchecked Sendable {
             switch name {
             case "host.version": return .success(try out(["app": AppInfo.version, "spec": "idj1"]))
             case "host.has":
-                let caps: Set<String> = ["http", "html", "crypto.hash", "crypto.hmac", "crypto.aes", "crypto.rsa", "codec", "m3u8", "storage", "settings", "url",
+                let caps: Set<String> = ["http", "html", "html.toTree", "crypto.hash", "crypto.hmac", "crypto.aes", "crypto.rsa", "codec", "m3u8", "storage", "settings", "url",
                                          "image.stripes", "image.aes"]
                 return .success(try out(caps.contains(str("cap"))))
             case "http.request": return .success(try out(try httpRequest(a)))
             case "http.allowed": return .success(try out(URL(string: str("url")).map(net.allowed) ?? false))
             case "html.parse": return .success(try out(try html.parse(str("text"))))
+            case "html.toTree": return .success(try out(try html.toTree(a["id"] as? Int ?? 0)))
             case "html.select": return .success(try out(try html.select(a["id"] as? Int ?? 0, str("q"), first: a["first"] as? Bool ?? false)))
             case "html.text": return .success(try out(try html.text(a["id"] as? Int ?? 0)))
             case "html.html": return .success(try out(try html.html(a["id"] as? Int ?? 0, outer: false)))

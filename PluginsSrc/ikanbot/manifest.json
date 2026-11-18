@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "com.idj.ikanbot",
+  "name": "爱看机器人",
+  "version": "1.0.4",
+  "author": {
+    "name": "黑果夜剧（适配 guoapp-modules/ikanbot）"
+  },
+  "description": "爱看机器人（ikanbot）全网聚合搜索式影视源，多线路可切换。搜片、分类浏览、m3u8 直链播放。基于 guoapp 开源模块适配。",
+  "type": "video",
+  "adult": false,
+  "language": ["zh"],
+  "minAppVersion": "1.5",
+  "entry": "main.js",
+  "permissions": {
+    "http": [
+      "ikanbot.com",
+      "www.ikanbot.com",
+      "www1.ikanbot.com"
+    ],
+    "media": ["*.ikanbot.com", "ikanbot.com"],
+    "cloudflare": false,
+    "storage": true,
+    "login": false,
+    "allowAnyMedia": true
+  },
+  "capabilities": ["home", "category", "search", "detail", "play"]
+}

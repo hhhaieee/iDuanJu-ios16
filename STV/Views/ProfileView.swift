@@ -156,7 +156,7 @@ struct ProfileView: View {
             .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showBackup = false } } }
             .sheet(isPresented: $showRestorePicker) {
-                NativeDocumentPicker(contentTypes: [.idjBackup, .json, .data]) { url in
+                NativeDocumentPicker(contentTypes: [.idjBackup]) { url in
                     let accessed = url.startAccessingSecurityScopedResource()
                     defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                     guard let data = try? Data(contentsOf: url) else {
