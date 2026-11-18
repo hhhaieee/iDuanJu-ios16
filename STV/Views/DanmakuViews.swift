@@ -170,7 +170,7 @@ struct DanmakuOverlay: View {
             let size = geo.size
             // 30fps 对滚动弹幕足够顺滑，砍掉一半 Canvas 开销；设置面板打开时彻底冻结，
             // 否则逐帧重绘+视频解码抢主线程，面板按钮会「时灵时不灵」。关闭面板自动恢复。
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: placed.isEmpty || settings.panelOpen)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: placed.isEmpty || settings.panelOpen || co.paused)) { timeline in
                 // Reading timeline.date inside the renderer forces a redraw every animation frame.
                 let frame = timeline.date
                 Canvas { ctx, canvas in
@@ -219,7 +219,9 @@ struct DanmakuOverlay: View {
         let dur = settings.speed.duration
         let W = size.width
         ctx.opacity = settings.opacity
-        ctx.addFilter(.shadow(color: .black.opacity(0.85), radius: 1.2, x: 0, y: 0.5))
+        // 不再对整屏 Canvas 施加 .shadow 高斯模糊滤镜：视频解码的同时每秒 30 次全屏模糊
+        // 会把 GPU/渲染管线打满，播放器的其他按钮就会「时灵时不灵」。改为每条弹幕先画一层
+        // 1pt 偏移的黑色底字当阴影，视觉等效而开销只有原滤镜的几十分之一。
         // Binary search for the first item that can still be on screen.
         var lo = 0, hi = placed.count
         while lo < hi { let m = (lo + hi) / 2; if placed[m].item.time < t - dur { lo = m + 1 } else { hi = m } }
@@ -237,7 +239,11 @@ struct DanmakuOverlay: View {
             let merged = p.item.count > 1
             let weight: Font.Weight = (merged || p.item.likes >= 50) ? .bold : .semibold
             let color = Color(hex: p.item.color) ?? .white
-            let text = ctx.resolve(Text(p.text).font(.system(size: font, weight: weight)).foregroundColor(color))
+            let fnt = Font.system(size: font, weight: weight)
+            // 阴影：黑色底字向右下偏移 1pt，替代整屏模糊滤镜。
+            let shadow = ctx.resolve(Text(p.text).font(fnt).foregroundColor(.black))
+            ctx.draw(shadow, at: CGPoint(x: x + 0.8, y: y + 1), anchor: .leading)
+            let text = ctx.resolve(Text(p.text).font(fnt).foregroundColor(color))
             ctx.draw(text, at: CGPoint(x: x, y: y), anchor: .leading)
             if merged {
                 let tw = text.measure(in: CGSize(width: 2000, height: 100)).width
@@ -256,55 +262,25 @@ extension Color {
     }
 }
 
-/// 设置面板内的实时弹幕预览：与播放器弹幕开关完全无关，改区域/速度/字号/不透明度立即生效。
-/// 用几条示例弹幕在预览区从右向左滚动，轨道数按当前 area × 显示行数计算，所见即所得。
+/// 设置面板内的效果预览：参考主流播放器的做法——固定一行示例字「这是一条弹幕效果预览🚀」，
+/// 不滚动、不加动画。只会随字号 / 不透明度即时变化，所见即所得。
+/// 之前这里跑 60fps TimelineView 滚动动画，是设置面板内按钮「时灵时不灵」的直接元凶之一。
 struct DanmakuPreview: View {
     @ObservedObject var settings: DanmakuSettings
-    private let samples = ["这条弹幕会滚动 →", "前方高能！", "好看好看", "哈哈哈哈哈", "打卡打卡", "作者加油", "沙发", "这集太上头了"]
-    private let previewHeight: CGFloat = 96
-
-    private var laneHeight: CGFloat { settings.size.points * 1.55 }
-    /// 预览区渲染行数与行距：与真实播放器一致——行数取"显示行数"，行距把该行数均匀铺满 area 区域。
-    private func lanes(height: CGFloat) -> (count: Int, spacing: CGFloat) {
-        let usable = max(0, height - 8)
-        let regionHeight = max(laneHeight, usable * settings.area.fraction)
-        let count = max(1, min(settings.size.rows, Int(regionHeight / max(1, laneHeight))))
-        let spacing = min(usable, max(laneHeight, regionHeight / CGFloat(count)))
-        return (count, spacing)
-    }
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let font = settings.size.points
-            let dur = settings.speed.duration
-            let layout = lanes(height: h)
-            TimelineView(.animation) { tl in
-                ZStack(alignment: .topLeading) {
-                    // 预览区底色，示意「弹幕可用范围」
-                    RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06))
-                    ForEach(0..<layout.count, id: \.self) { lane in
-                        let sample = samples[lane % samples.count]
-                        let estWidth = CGFloat(sample.count) * font * 0.95 + 28
-                        let period = dur + Double(estWidth / max(1, w)) * dur
-                        let phase = (tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) + period)
-                            .truncatingRemainder(dividingBy: period) / period
-                        let x = w - CGFloat(phase) * (w + estWidth)
-                        Text(sample)
-                            .font(.system(size: font, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .opacity(settings.opacity)
-                            .shadow(color: .black.opacity(0.8), radius: 2)
-                            .offset(x: x, y: CGFloat(lane) * layout.spacing + (layout.spacing - font) / 2)
-                    }
-                }
-                .clipped()
-            }
-        }
-        .frame(height: previewHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        Text("这是一条弹幕效果预览 🚀")
+            .font(.system(size: settings.size.points, weight: .semibold))
+            .foregroundColor(.white)
+            .opacity(settings.opacity)
+            .shadow(color: .black.opacity(0.8), radius: 1.5)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 13)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -315,11 +291,10 @@ struct DanmakuSettingsSheet: View {
     var available = true
 
     var body: some View {
-        // 竖屏按参考样式给一张约 520pt 的紧凑卡片；横屏高度受限固定 large，
-        // 保证设置项可滚动、右上角 ✕ 随时可退。
-        let detents: Set<PresentationDetent> = vClass == .compact ? [.large] : [.height(520), .large]
+        // 对标主流播放器：竖屏半屏卡片（medium），横屏近全高卡片；内容行距收紧，所有设置一屏放下。
+        let detents: Set<PresentationDetent> = vClass == .compact ? [.large] : [.medium, .large]
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     Image(systemName: "tv.fill").font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(STVTheme.accent)
@@ -338,21 +313,20 @@ struct DanmakuSettingsSheet: View {
                 Toggle("显示弹幕", isOn: $settings.enabled)
                     .font(.subheadline)
 
-                // 实时预览：不受「显示弹幕」开关影响，改任意一项立刻可见。
+                // 单行静态预览：固定示例字，仅随字号 / 不透明度变化，不滚动、不耗帧。
                 DanmakuPreview(settings: settings)
 
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("字体大小").font(.subheadline)
                         Spacer()
-                        // 行数随字号自动决定，不再单独设置。
-                        Text("\(settings.size.rows) 行").font(.caption).foregroundStyle(STVTheme.accentWarm)
+                        Text(sizeValue).font(.caption).foregroundStyle(STVTheme.accentWarm)
                     }
                     Picker("字体大小", selection: $settings.size) {
                         ForEach(DanmakuSettings.Size.allCases) { Text($0.label).tag($0) }
                     }.pickerStyle(.segmented)
                 }
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("不透明度").font(.subheadline)
                         Spacer()
@@ -365,30 +339,46 @@ struct DanmakuSettingsSheet: View {
                         Text("100%").tag(1.0)
                     }.pickerStyle(.segmented)
                 }
-                HStack {
-                    Text("显示区域").font(.subheadline)
-                    Spacer()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("显示区域").font(.subheadline)
+                        Spacer()
+                        Text(settings.area.label).font(.caption).foregroundStyle(STVTheme.accentWarm)
+                    }
                     Picker("显示区域", selection: $settings.area) {
                         ForEach(DanmakuSettings.Area.allCases) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).frame(width: 230)
+                    }.pickerStyle(.segmented)
                 }
-                HStack {
-                    Text("滚动速度").font(.subheadline)
-                    Spacer()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("滚动速度").font(.subheadline)
+                        Spacer()
+                        Text(settings.speed.label).font(.caption).foregroundStyle(STVTheme.accentWarm)
+                    }
                     Picker("滚动速度", selection: $settings.speed) {
                         ForEach(DanmakuSettings.Speed.allCases) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).frame(width: 160)
+                    }.pickerStyle(.segmented)
                 }
                 if !settings.status.isEmpty {
                     Text(settings.status).font(.caption2).foregroundStyle(STVTheme.secondary)
                 }
             }
             .tint(STVTheme.accent)
-            .padding(16).padding(.top, 4)
+            .padding(14).padding(.top, 4)
         }
         .presentationDetents(detents)
         // 面板期间冻结播放器弹幕逐帧重绘，主线程让给面板触摸响应（否则按钮「时灵时不灵」）。
         .onAppear { settings.panelOpen = true }
         .onDisappear { settings.panelOpen = false }
+    }
+
+    /// 字体大小右侧数值：与参考样式一致显示倍率（1.0x / 1.25x / 1.5x）。
+    private var sizeValue: String {
+        switch settings.size {
+        case .small: "0.8x"
+        case .medium: "1.0x"
+        case .large: "1.25x"
+        case .xlarge: "1.5x"
+        }
     }
 }
