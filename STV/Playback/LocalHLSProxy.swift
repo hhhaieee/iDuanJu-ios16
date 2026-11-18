@@ -42,9 +42,6 @@ final class LocalHLSProxy: @unchecked Sendable {
     private var port: UInt16 = 0
     /// token → route (one token per resolved stream).
     private var routes: [String: Route] = [:]
-    /// 下载导出：token → 已解密分片的本地目录，经 loopback 以标准 HLS 暴露给 AVURLAsset。
-    /// iOS16 上 file:// 的 m3u8 会被 AVFoundation 判为 -11828，必须走 http scheme。
-    private var localDirs: [String: URL] = [:]
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
@@ -114,27 +111,6 @@ final class LocalHLSProxy: @unchecked Sendable {
         // `.mp4` extension: AVFoundation picks the container from the URL/Content-Type; extensionless URLs
         // are a classic "Cannot Open" (-11829) on device.
         return "http://127.0.0.1:\(port)/tg/\(ref.id).mp4"
-    }
-
-    /// 把一个本地目录（内含已解密分片 + local.m3u8）以 loopback HLS 暴露给 AVURLAsset。
-    /// 返回 http://127.0.0.1:<port>/x/<token>/<name> 形式的 URL 模板占位串；调用方用 `localFileURL` 取分片。
-    /// 仅用于下载导出：让 AVFoundation 以 http HLS 语义读取，绕开 file:// m3u8 的 -11828。
-    func serveLocalDir(_ dir: URL) -> String? {
-        guard let port = start() else { return nil }
-        let token = "off" + String(UUID().uuidString.prefix(8)).lowercased()
-        lock.lock()
-        localDirs[token] = dir
-        lock.unlock()
-        return "http://127.0.0.1:\(port)/x/\(token)/"
-    }
-
-    /// 释放下载导出用的本地目录路由。
-    func releaseLocalDir(_ base: String?) {
-        guard let base, let u = URL(string: base), u.host == "127.0.0.1" else { return }
-        let segs = u.path.split(separator: "/").map(String.init)
-        guard let xi = segs.firstIndex(of: "x"), segs.indices.contains(xi + 1) else { return }
-        let token = segs[xi + 1]
-        lock.lock(); localDirs.removeValue(forKey: token); lock.unlock()
     }
 
     #if DEBUG
@@ -283,18 +259,6 @@ final class LocalHLSProxy: @unchecked Sendable {
         if segs.count == 2, segs[0] == "tg" {
             guard let td = route("tg-\(Self.tdFileId(segs[1]))")?.td else { return reply(c, 404, "text/plain", Data()) }
             return await serveTD(c, td, range: rangeHeader, head: parts[0] == "HEAD")
-        }
-        // 下载导出：本地已解密目录，经 http HLS 喂给 AVURLAsset（绕开 file:// -11828）。
-        // 路径 /x/<token>/<fileName>，fileName 就是落盘时的 local.m3u8 / seg_xxxxx.ts / init.mp4。
-        if segs.count == 3, segs[0] == "x" {
-            lock.lock(); let dir = localDirs[segs[1]]; lock.unlock()
-            guard let dir else { return reply(c, 404, "text/plain", Data()) }
-            let name = segs[2]
-            let file = dir.appendingPathComponent(name)
-            guard let data = try? Data(contentsOf: file) else { return reply(c, 404, "text/plain", Data()) }
-            let type = name.hasSuffix(".m3u8") ? "application/vnd.apple.mpegurl"
-                : (name.hasSuffix(".ts") ? "video/mp2t" : "video/mp4")
-            return reply(c, 200, type, data)
         }
         guard segs.count == 2, comps.count == 2, comps[1].hasPrefix("u="),
               let upstream = Self.unb64(String(comps[1].dropFirst(2))), let url = URL(string: upstream),
