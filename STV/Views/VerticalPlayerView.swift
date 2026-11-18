@@ -68,6 +68,10 @@ struct PlayerScreen: View {
     /// 横屏转竖屏时 portraitFeed 重新挂载、ScrollView 从 y=0 起步滚到 co.current 的过渡态。
     /// anchoring 期间完全禁用 settle，等 y 真正到达目标页再启用，避免把选集误拉回第一集。
     @State private var feedAnchoring = false
+    /// iOS17 scrollPosition 写回守卫：横屏切竖屏 portraitFeed 重挂载时 ScrollView 从顶部起步，
+    /// 双向绑定会立刻把 id=0 写回 co.select(0) 导致跳回第一集重播。挂载后短暂屏蔽写回，
+    /// 让 get(co.current) 驱动滚动停在目标集；0.6s 后放开恢复正常上下滑切集。
+    @State private var scrollWriteGuard = false
     /// Running double-tap seek (+10/+20/… s) and which side it is on; drives the side bubble.
     @State private var seekRun: (total: Int, at: Date)?
     /// 屏幕左右滑动调进度：t0 = 起始时间, cur = 当前预览时间, active 控制气泡显示。
@@ -356,7 +360,11 @@ struct PlayerScreen: View {
     private func danmakuLayer(_ i: Int, full: CGSize, ins: EdgeInsets) -> some View {
         let r = DanmakuRegion.compute(screen: full, safeTop: ins.top, safeBottom: ins.bottom, landscape: landscape, showTech: showTech,
                                       area: danmaku.area.fraction, laneHeight: DanmakuOverlay.laneHeight(danmaku), maxRows: danmaku.rows)
+        // 设置任意一项变化即强制重建 overlay：重新 load（命中 5 分钟缓存，几乎无感）并按新参数
+        // 重排重绘。绕开 TimelineView 在 paused（暂停看弹幕）/Canvas 缓存下改设置不生效的链路。
+        let dmKey = "\(danmaku.area.rawValue)|\(danmaku.rows)|\(danmaku.speed.rawValue)|\(danmaku.size.rawValue)|\(danmaku.merge)|\(danmaku.likesPriority)|\(Int(danmaku.opacity * 100))"
         return DanmakuOverlay(co: co, seriesId: series.seriesId, vid: co.episodes[i].vid, landscape: landscape, laneTop: r.top, laneCount: r.rows)
+            .id(dmKey)
             .frame(width: full.width, height: full.height)
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 14 / max(1, full.width)),
                                          .init(color: .black, location: 1 - 14 / max(1, full.width)), .init(color: .clear, location: 1)],
@@ -386,7 +394,15 @@ struct PlayerScreen: View {
             }
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
-            .scrollPosition(id: Binding(get: { co.current }, set: { co.select($0) }))
+            .scrollPosition(id: Binding(
+                get: { co.current },
+                set: { new in guard !scrollWriteGuard else { return }; co.select(new) }
+            ))
+            .onAppear {
+                // 切屏重挂载时先屏蔽 scrollPosition 的顶部写回，等 get 驱动滚动落到目标集后放开。
+                scrollWriteGuard = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { scrollWriteGuard = false }
+            }
             .compatScrollFeedback(onOffset: { feedScrollY = $0 }, onSettled: { feedSettled = $0; releaseHeldIfSettled() })
             .compatSelectionFeedback(trigger: co.current)
             .onChange(of: co.readyIndex) { _ in releaseHeldIfSettled() }
@@ -929,21 +945,6 @@ struct PlayerScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 TrackPopover(title: "音轨", options: co.audioOptions, selected: co.audioSelected, allowsOff: false,
                              emptyText: "当前视频只有一条音轨") { o in if let o { co.selectAudio(o) }; closePanel() }
-                Divider().overlay(.white.opacity(0.12)).padding(.horizontal, 12).padding(.vertical, 4)
-                // 音量控制：直接改播放器自身的音量（0...1），不依赖系统音量条，
-                // 之前经 MPVolumeView 改系统音量在 iOS 16 上根本不生效。
-                HStack(spacing: 10) {
-                    Image(systemName: co.volume > 0.001 ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                        .font(.system(size: 15)).foregroundStyle(.white.opacity(0.85)).frame(width: 22)
-                    Slider(value: Binding(
-                        get: { Double(co.volume) },
-                        set: { co.setVolume(Float($0)) }
-                    )).tint(.white)
-                    Text("\(Int((co.volume * 100).rounded()))")
-                        .font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.white.opacity(0.7))
-                        .frame(width: 26, alignment: .trailing)
-                }
-                .padding(.horizontal, 12).padding(.bottom, 10)
             }
         case .subtitles:
             VStack(alignment: .leading, spacing: 0) {
