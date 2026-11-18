@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build71 播放器手势稳定性优化 + 弹幕渲染提速"
-          NOTES="build71: ① 滑动方向判定由瞬时速度改为累计位移为主（位移<6pt才用速度兜底），横滑调进度/竖滑切集/边缘亮度音量不再抢手势；② 双击判定放宽（时间窗0.3→0.4s、横向偏差0.2→0.28）更跟手；③ 控制栏单击显隐只由 showChrome 驱动，centerSuppressed 收窄为仅管中心按钮加载期显隐，消除「点屏幕没反应」状态残留；④ 弹幕渲染提速：字号/颜色/Text/badge 宽度在 relayout 时预排版缓存，Canvas 每帧只 resolve+draw，不再逐帧解析hex/构造字体/measure"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build72 插件导入改为系统文件选择器直选"
+          NOTES="build72: 插件「从文件导入」改为点击直接调用系统文件选择器，移除原先「放入 PluginImports 文件夹再扫描」的中间步骤及相关界面，导入路径简化为一步。注意：若侧载环境下系统文件选择器受限，请改用「从网址添加」或「粘贴插件内容」导入。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

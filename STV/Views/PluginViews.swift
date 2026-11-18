@@ -19,8 +19,6 @@ struct PluginsView: View {
     @State private var urlText = ""
     @State private var showPaste = false
     @State private var showFile = false
-    @State private var showImportList = false
-    @State private var importFiles: [PluginImportService.ImportFile] = []
     @State private var showSub = false
     @State private var subText = ""
     @State private var showCMS = false
@@ -44,9 +42,7 @@ struct PluginsView: View {
                 }
                 group("添加插件") {
                     action("从网址添加", "link", id: "plugins.add.url") { urlText = ""; showURL = true }
-                    action("从文件导入（.idjplugin）", "doc.badge.plus", id: "plugins.add.file") {
-                        importFiles = PluginImportService.listFiles(); showImportList = true
-                    }
+                    action("从文件导入（.idjplugin）", "doc.badge.plus", id: "plugins.add.file") { showFile = true }
                     action("粘贴插件内容", "doc.on.clipboard", id: "plugins.add.paste") { showPaste = true }
                     action(busy == "update" ? "正在检查更新…" : "检查更新", "arrow.triangle.2.circlepath", id: "plugins.update") { await checkUpdates() }
                 }
@@ -122,19 +118,6 @@ struct PluginsView: View {
         }
         .sheet(isPresented: $showPaste) { PasteSheet { text in showPaste = false; if let text { interpret(text) } } }
         .sheet(isPresented: $showCMS) { AddCMSSheet { showCMS = false; if let m = $0 { message = m } } }
-        .sheet(isPresented: $showImportList) {
-            PluginImportListSheet(files: importFiles, onPick: { f in
-                showImportList = false
-                // 等导入列表 sheet 关闭后再走权限确认 sheet，避免两个 sheet 同帧切换冲突。
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { installImportedFile(f) }
-            }, onDelete: { f in
-                try? FileManager.default.removeItem(at: f.url)
-                importFiles = PluginImportService.listFiles()
-            }, onSystemPicker: {
-                showImportList = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { showFile = true }
-            })
-        }
         .fileImporter(isPresented: $showFile, allowedContentTypes: [.idjplugin, .json, .plainText, .data]) { r in
             guard case let .success(url) = r else { return }
             let ok = url.startAccessingSecurityScopedResource()
@@ -177,12 +160,6 @@ struct PluginsView: View {
             } catch { message = error.localizedDescription }
             busy = nil
         }
-    }
-
-    /// 从 PluginImports 文件夹扫描到的 .idjplugin 读取并安装。
-    private func installImportedFile(_ f: PluginImportService.ImportFile) {
-        guard let d = PluginImportService.read(f), d.count < 4 << 20 else { message = "无法读取文件"; return }
-        prepare { try PluginInstaller.prepare(bundle: d, origin: "文件：" + f.name) }
     }
 
     private func checkUpdates() async {
@@ -524,57 +501,4 @@ struct PluginLogView: View {
         .onReceive(NotificationCenter.default.publisher(for: PluginLog.changed)) { _ in lines = PluginLog.lines(id) }
         .accessibilityIdentifier("plugin.logview")
     }
-}
-
-/// 从 PluginImports 文件夹扫描到的插件列表（照搬备份恢复的点选模式，绕开侧载下失效的 UIDocumentPicker）。
-struct PluginImportListSheet: View {
-    let files: [PluginImportService.ImportFile]
-    let onPick: (PluginImportService.ImportFile) -> Void
-    let onDelete: (PluginImportService.ImportFile) -> Void
-    let onSystemPicker: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("把 .idjplugin 文件放入「文件」App → 我的 iPhone → 黑果夜剧 → PluginImports，返回此页即可看到并点选安装。")
-                        .font(.caption).foregroundStyle(STVTheme.secondary)
-                }
-                Section("可安装的插件（点选安装）") {
-                    if files.isEmpty {
-                        Text("PluginImports 文件夹里还没有 .idjplugin 文件。")
-                            .font(.caption).foregroundStyle(STVTheme.secondary)
-                    } else {
-                        ForEach(files) { f in
-                            HStack {
-                                Button { onPick(f) } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(f.name).font(.subheadline).lineLimit(1)
-                                        Text("\(f.size / 1024) KB · \(f.date.formatted(date: .abbreviated, time: .shortened))")
-                                            .font(.caption).foregroundStyle(STVTheme.secondary)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                Spacer()
-                                Button { onDelete(f) } label: {
-                                    Image(systemName: "trash").foregroundStyle(.red)
-                                }.buttonStyle(.borderless)
-                            }
-                        }
-                    }
-                }
-                Section {
-                    Button { onSystemPicker() } label: {
-                        Label("改用系统文件选择器", systemImage: "folder")
-                    }
-                }
-            }
-            .navigationTitle("从文件导入")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    @Environment(\.dismiss) private var dismiss
 }
