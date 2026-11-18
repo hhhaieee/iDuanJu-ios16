@@ -37,6 +37,9 @@ final class DanmakuSettings: ObservableObject {
     @Published var size: Size { didSet { save() } }
     /// Live status of the current episode (not persisted).
     @Published var status = ""
+    /// 设置面板打开信号（不持久化）：面板期间冻结播放器弹幕的逐帧重绘，
+    /// 把主线程让给面板的触摸响应——否则 60fps Canvas + 视频解码会挤掉面板点击，表现为「按钮时灵时不灵」。
+    @Published var panelOpen = false
 
     private let d = UserDefaults.standard
     private init() {
@@ -165,9 +168,9 @@ struct DanmakuOverlay: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            // 暂停时不能停帧：否则设置面板改区域/速度/字号后 Canvas 不再重绘，表现为「设置无效」。
-            // 弹幕位置取自 co.playhead，暂停时它不动，画面自然静止；这里只在无弹幕时省电。
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: placed.isEmpty)) { timeline in
+            // 30fps 对滚动弹幕足够顺滑，砍掉一半 Canvas 开销；设置面板打开时彻底冻结，
+            // 否则逐帧重绘+视频解码抢主线程，面板按钮会「时灵时不灵」。关闭面板自动恢复。
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: placed.isEmpty || settings.panelOpen)) { timeline in
                 // Reading timeline.date inside the renderer forces a redraw every animation frame.
                 let frame = timeline.date
                 Canvas { ctx, canvas in
@@ -258,7 +261,7 @@ extension Color {
 struct DanmakuPreview: View {
     @ObservedObject var settings: DanmakuSettings
     private let samples = ["这条弹幕会滚动 →", "前方高能！", "好看好看", "哈哈哈哈哈", "打卡打卡", "作者加油", "沙发", "这集太上头了"]
-    private let previewHeight: CGFloat = 132
+    private let previewHeight: CGFloat = 96
 
     private var laneHeight: CGFloat { settings.size.points * 1.55 }
     /// 预览区渲染行数与行距：与真实播放器一致——行数取"显示行数"，行距把该行数均匀铺满 area 区域。
@@ -312,17 +315,19 @@ struct DanmakuSettingsSheet: View {
     var available = true
 
     var body: some View {
-        // 横屏（compact height）下 medium detent 会直接顶满且下拉易被播放器手势吞掉；
-        // 固定 large + 顶部关闭按钮，保证设置项可滚动、随时可退。
-        let detents: Set<PresentationDetent> = vClass == .compact ? [.large] : [.medium, .large]
+        // 竖屏按参考样式给一张约 520pt 的紧凑卡片；横屏高度受限固定 large，
+        // 保证设置项可滚动、右上角 ✕ 随时可退。
+        let detents: Set<PresentationDetent> = vClass == .compact ? [.large] : [.height(520), .large]
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("弹幕").font(.title3.bold())
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "tv.fill").font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(STVTheme.accent)
+                    Text("弹幕设置").font(.headline)
                     Spacer()
-                    // 横屏下 sheet 会占满屏幕、下拉关闭又与播放器手势冲突，提供显式关闭按钮随时退出。
+                    // 横屏下 sheet 占满屏幕、下拉关闭又与播放器手势冲突，提供显式关闭按钮随时退出。
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 24))
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 22))
                             .foregroundStyle(STVTheme.secondary)
                     }
                     .accessibilityLabel("关闭弹幕设置")
@@ -330,36 +335,28 @@ struct DanmakuSettingsSheet: View {
                 if !available {
                     Text("当前片源不支持弹幕（仅红果）").font(.footnote).foregroundStyle(STVTheme.secondary)
                 }
-                Toggle(isOn: $settings.enabled) {
-                    Text("显示弹幕")
-                }
+                Toggle("显示弹幕", isOn: $settings.enabled)
+                    .font(.subheadline)
 
                 // 实时预览：不受「显示弹幕」开关影响，改任意一项立刻可见。
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("效果预览").font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text("改了立即生效").font(.caption).foregroundStyle(STVTheme.secondary)
-                    }
-                    DanmakuPreview(settings: settings)
-                }
-                VStack(alignment: .leading, spacing: 8) {
+                DanmakuPreview(settings: settings)
+
+                VStack(alignment: .leading, spacing: 7) {
                     HStack {
                         Text("字体大小").font(.subheadline)
                         Spacer()
                         // 行数随字号自动决定，不再单独设置。
-                        Text("\(settings.size.rows) 行").font(.caption).foregroundStyle(STVTheme.secondary)
+                        Text("\(settings.size.rows) 行").font(.caption).foregroundStyle(STVTheme.accentWarm)
                     }
                     Picker("字体大小", selection: $settings.size) {
                         ForEach(DanmakuSettings.Size.allCases) { Text($0.label).tag($0) }
                     }.pickerStyle(.segmented)
-                    Text("小 4 行 · 标准 3 行 · 大 2 行 · 特大 2 行").font(.caption2).foregroundStyle(STVTheme.secondary)
                 }
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 7) {
                     HStack {
                         Text("不透明度").font(.subheadline)
                         Spacer()
-                        Text("\(Int(settings.opacity * 100))%").font(.caption).foregroundStyle(STVTheme.secondary)
+                        Text("\(Int(settings.opacity * 100))%").font(.caption).foregroundStyle(STVTheme.accentWarm)
                     }
                     Picker("不透明度", selection: $settings.opacity) {
                         Text("40%").tag(0.4)
@@ -373,7 +370,7 @@ struct DanmakuSettingsSheet: View {
                     Spacer()
                     Picker("显示区域", selection: $settings.area) {
                         ForEach(DanmakuSettings.Area.allCases) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).frame(width: 220)
+                    }.pickerStyle(.segmented).frame(width: 230)
                 }
                 HStack {
                     Text("滚动速度").font(.subheadline)
@@ -383,12 +380,15 @@ struct DanmakuSettingsSheet: View {
                     }.pickerStyle(.segmented).frame(width: 160)
                 }
                 if !settings.status.isEmpty {
-                    Text(settings.status).font(.caption).foregroundStyle(STVTheme.secondary)
+                    Text(settings.status).font(.caption2).foregroundStyle(STVTheme.secondary)
                 }
             }
             .tint(STVTheme.accent)
-            .padding(20).padding(.top, 8)
+            .padding(16).padding(.top, 4)
         }
         .presentationDetents(detents)
+        // 面板期间冻结播放器弹幕逐帧重绘，主线程让给面板触摸响应（否则按钮「时灵时不灵」）。
+        .onAppear { settings.panelOpen = true }
+        .onDisappear { settings.panelOpen = false }
     }
 }
