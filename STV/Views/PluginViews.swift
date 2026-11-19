@@ -96,6 +96,7 @@ struct PluginsView: View {
         .background(STVTheme.bg.ignoresSafeArea())
         .navigationTitle("插件")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await store.ensureDefaultStore() }
         .overlay { if busy == "prepare" { ProgressView("正在校验插件…").padding(20).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14)) } }
         .sheet(item: $pending) { p in
             PluginConsentSheet(pending: p) { ok in

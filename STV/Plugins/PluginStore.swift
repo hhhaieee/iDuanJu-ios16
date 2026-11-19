@@ -97,6 +97,9 @@ final class PluginStore: ObservableObject {
     private var indexURL: URL { PluginPaths.root.appendingPathComponent("index.json") }
     private let d = UserDefaults.standard
     static let subsKey = "stv.plugins.subscriptions"
+    /// 内置默认插件商店（jsDelivr 加速）。用户手动删过之后不再自动加回。
+    static let defaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@main/index.json"
+    static let defaultStoreRemovedKey = "stv.plugins.defaultStoreRemoved"
 
     private init() {
         if let data = try? Data(contentsOf: indexURL), let list = try? JSONDecoder().decode([InstalledPlugin].self, from: data) { plugins = list }
@@ -232,6 +235,13 @@ final class PluginStore: ObservableObject {
 
     // MARK: Subscriptions
 
+    /// 首次进入插件页时自动注入内置插件商店（除非用户已手动删除过）。
+    func ensureDefaultStore() async {
+        guard !d.bool(forKey: Self.defaultStoreRemovedKey) else { return }
+        guard !subscriptions.contains(where: { $0.url == Self.defaultStoreURL }) else { return }
+        try? await addSubscription(Self.defaultStoreURL)
+    }
+
     func addSubscription(_ url: String) async throws {
         let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard URL(string: u)?.scheme == "https" || URL(string: u)?.scheme == "http" else { throw PluginError.install("订阅地址必须是 http(s) 链接") }
@@ -251,7 +261,11 @@ final class PluginStore: ObservableObject {
         saveSubs()
     }
 
-    func removeSubscription(_ url: String) { subscriptions.removeAll { $0.url == url }; saveSubs() }
+    func removeSubscription(_ url: String) {
+        subscriptions.removeAll { $0.url == url }
+        if url == Self.defaultStoreURL { d.set(true, forKey: Self.defaultStoreRemovedKey) }
+        saveSubs()
+    }
 
     private func refresh(_ sub: inout PluginSubscription) async throws {
         let data = try await PluginInstaller.download(sub.url, limit: 1 << 20)

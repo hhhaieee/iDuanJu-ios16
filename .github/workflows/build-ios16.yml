@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build77 修复爱看机器人插件 + 播放自动换线降卡顿"
-          NOTES="build77: ① 修复内置「爱看机器人」插件导出错误（E_SYNTAX）：改用顶层 export default，之前点安装失败、一直显示安装按钮的问题已解决；② 播放自动换线：当前线路 404/403/超时时自动切到下一条可用线路，不再卡死在坏线路；③ 失效线路降权：失败过的线路本地记分、下次排到后面，正常播放后自动恢复；④ 起播超时收紧：Aether 打开超时 25s→8s，坏线路更快降级/换线，减少干等；⑤ 沿用 build76 的全部能力（内置插件、html.toTree、文件选择只显对应格式、原生选择器）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build78 内置插件商店 + 播放自动换线降卡顿"
+          NOTES="build78: ① 新增内置插件商店：App 内「插件」页自动加载官方商店（hhhaieee/idj-plugins），点「安装」直接下载校验并装进本地、可随时卸载，删过商店可重新添加地址；② 爱看机器人改为商店上架、不再内置；③ 播放自动换线：线路 404/403/超时自动切下一条可用线路；④ 失效线路降权：失败线路本地记分排后、正常播放自动恢复；⑤ 起播超时收紧 Aether 25s→8s；⑥ 修复 ikanbot 插件导出错误（export default）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
