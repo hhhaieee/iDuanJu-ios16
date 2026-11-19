@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build79 插件页新增在线仓库 + 修复恢复备份丢商店"
-          NOTES="build79: ① 插件页新增「在线仓库」模块（位于「已安装」与「添加插件」之间），独立展示官方插件仓库，插件条目只有安装/已安装/可更新状态、无删除按钮；② 修复恢复备份后在线仓库丢失：恢复时强制清除「已删除默认商店」标记，重启后自动重新注入官方仓库；③ 卸载插件后在线仓库立即重新显示可安装；④ 用户自定义订阅仍保留在「订阅」模块；⑤ 沿用 build78 的全部能力（播放自动换线/降权/超时收紧、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build80 在线仓库改用版本tag地址，修复爱看机器人一直显示旧版"
+          NOTES="build80: ① 官方在线仓库默认地址由 jsDelivr @main 分支改为版本 tag（@v1.0.6），彻底解决分支缓存延迟导致的「爱看机器人一直显示 V1.0.5」问题，更新即时生效；② 升级后自动把旧版 @main 订阅迁移到新 tag 地址并立即刷新，不重复、不丢失；③ 沿用 build79 的全部能力（在线仓库模块、恢复备份不丢商店、卸载后商店恢复可安装、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
