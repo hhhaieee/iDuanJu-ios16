@@ -40,6 +40,9 @@ struct PluginsView: View {
                 if hiddenAdult > 0 {
                     note("另有 \(hiddenAdult) 个成人插件已隐藏：在「片源管理」解锁后显示。")
                 }
+                if let repo = store.defaultStore {
+                    group("在线仓库") { onlineRepoBlock(repo) }
+                }
                 group("添加插件") {
                     action("从网址添加", "link", id: "plugins.add.url") { urlText = ""; showURL = true }
                     action("从文件导入（.idjplugin）", "doc.badge.plus", id: "plugins.add.file") {
@@ -56,9 +59,9 @@ struct PluginsView: View {
                     }.buttonStyle(.plain).background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14)).padding(.horizontal, 16)
                 }
                 group("订阅") {
-                    ForEach(store.subscriptions) { s in subscriptionBlock(s) }
+                    ForEach(store.customSubscriptions) { s in subscriptionBlock(s) }
                     action("添加订阅地址", "plus.circle", id: "plugins.sub.add") { subText = ""; showSub = true }
-                    if !store.subscriptions.isEmpty {
+                    if !store.customSubscriptions.isEmpty {
                         action(busy == "subs" ? "正在刷新…" : "刷新全部订阅", "arrow.clockwise", id: "plugins.sub.refresh") {
                             busy = "subs"; await store.refreshSubscriptions(); busy = nil
                         }
@@ -201,6 +204,53 @@ struct PluginsView: View {
                 .accessibilityIdentifier("plugins.toggle.\(p.id)")
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
         }.padding(14).contentShape(Rectangle())
+    }
+
+    @ViewBuilder private func onlineRepoBlock(_ s: PluginSubscription) -> some View {
+        let items = s.plugins.filter { !($0.adult ?? true) || gate.unlocked }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.name.isEmpty ? "官方插件仓库" : s.name).foregroundStyle(STVTheme.text)
+                    Text(s.error ?? "官方维护 · \(s.plugins.count) 个插件").font(.caption2)
+                        .foregroundStyle(s.error == nil ? STVTheme.secondary : STVTheme.accentWarm).lineLimit(1)
+                }
+                Spacer()
+                Button {
+                    busy = "subs"
+                    Task { await store.refreshSubscriptions(); busy = nil }
+                } label: { Image(systemName: "arrow.clockwise").foregroundStyle(STVTheme.secondary) }
+                    .buttonStyle(.borderless).accessibilityIdentifier("plugins.repo.refresh")
+            }
+            if items.isEmpty {
+                Text("仓库暂无可安装插件").font(.caption).foregroundStyle(STVTheme.secondary).padding(.vertical, 4)
+            }
+            ForEach(items) { e in
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(e.name).foregroundStyle(STVTheme.text)
+                            if e.adult ?? false { badge("18+") }
+                        }
+                        if let d = e.description, !d.isEmpty { Text(d).font(.caption).foregroundStyle(STVTheme.secondary).lineLimit(2) }
+                        if let v = e.version { Text("v\(v)").font(.caption2).foregroundStyle(STVTheme.secondary) }
+                    }
+                    Spacer()
+                    if let installed = store.plugin(e.id) {
+                        if let v = e.version, PluginManifest.compare(v, installed.manifest.version) > 0 {
+                            Button("更新") { prepare { try await PluginInstaller.prepare(manifestURL: e.manifest, origin: "在线仓库") } }
+                                .buttonStyle(.bordered).tint(STVTheme.accent)
+                        } else {
+                            Text("已安装").font(.caption).foregroundStyle(STVTheme.secondary)
+                        }
+                    } else {
+                        Button("安装") { prepare { try await PluginInstaller.prepare(manifestURL: e.manifest, origin: "在线仓库") } }
+                            .buttonStyle(.bordered).tint(STVTheme.accent)
+                    }
+                }
+                if e.id != items.last?.id { Divider().overlay(STVTheme.text.opacity(0.06)) }
+            }
+        }.padding(14)
     }
 
     @ViewBuilder private func subscriptionBlock(_ s: PluginSubscription) -> some View {

@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build78 内置插件商店 + 播放自动换线降卡顿"
-          NOTES="build78: ① 新增内置插件商店：App 内「插件」页自动加载官方商店（hhhaieee/idj-plugins），点「安装」直接下载校验并装进本地、可随时卸载，删过商店可重新添加地址；② 爱看机器人改为商店上架、不再内置；③ 播放自动换线：线路 404/403/超时自动切下一条可用线路；④ 失效线路降权：失败线路本地记分排后、正常播放自动恢复；⑤ 起播超时收紧 Aether 25s→8s；⑥ 修复 ikanbot 插件导出错误（export default）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build79 插件页新增在线仓库 + 修复恢复备份丢商店"
+          NOTES="build79: ① 插件页新增「在线仓库」模块（位于「已安装」与「添加插件」之间），独立展示官方插件仓库，插件条目只有安装/已安装/可更新状态、无删除按钮；② 修复恢复备份后在线仓库丢失：恢复时强制清除「已删除默认商店」标记，重启后自动重新注入官方仓库；③ 卸载插件后在线仓库立即重新显示可安装；④ 用户自定义订阅仍保留在「订阅」模块；⑤ 沿用 build78 的全部能力（播放自动换线/降权/超时收紧、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

@@ -130,6 +130,10 @@ enum BackupService {
             }
         }
 
+        // 恢复后强制重新注入内置「在线仓库」：清除「用户已删除默认商店」标记，
+        // 避免旧备份把这个标记写回、导致插件商店永远加不回来。
+        UserDefaults.standard.removeObject(forKey: "stv.plugins.defaultStoreRemoved")
+
         var filesCount = 0
         let root = PluginPaths.root
         // 先清后写，保证恢复的是备份时刻的插件集合；失败项跳过，不影响其他文件。

@@ -235,6 +235,11 @@ final class PluginStore: ObservableObject {
 
     // MARK: Subscriptions
 
+    /// 官方「在线仓库」（内置默认商店），独立于用户自定义订阅展示。
+    var defaultStore: PluginSubscription? { subscriptions.first { $0.url == Self.defaultStoreURL } }
+    /// 用户自定义订阅（不含官方在线仓库）。
+    var customSubscriptions: [PluginSubscription] { subscriptions.filter { $0.url != Self.defaultStoreURL } }
+
     /// 首次进入插件页时自动注入内置插件商店（除非用户已手动删除过）。
     func ensureDefaultStore() async {
         guard !d.bool(forKey: Self.defaultStoreRemovedKey) else { return }
