@@ -11,8 +11,9 @@ import UIKit
     let kind = PlayerEngineKind.aether
     var onFailed: ((Error?) -> Void)?
     var onEnded: (() -> Void)?
-    /// Opening budget before the coordinator falls back to AVPlayer.
-    static var loadTimeout: TimeInterval = 25
+    /// Opening budget before the coordinator falls back to AVPlayer. 收紧到 8s：
+    /// 坏线路不再长时间占住起播，尽快降级/换线，减少用户干等（配合自动换线）。
+    static var loadTimeout: TimeInterval = 8
 
     let engine: AetherEngine
     private let view = AetherPlayerView()

@@ -5,6 +5,34 @@ import MediaPlayer
 import Combine
 import UIKit
 
+/// Persistent failure score per (series, stream URL). A line that failed before is ranked after
+/// healthy ones on the next play, and is skipped during automatic line rotation, so a dead CDN
+/// line (404/403/timeout) is never picked first twice in a row. Scores clear on a successful play.
+private final class StreamHealth {
+    static let shared = StreamHealth()
+    private let store = UserDefaults.standard
+    private let key = "stv.stream.health.v1"
+    private var counts: [String: Int]
+    private init() { counts = (store.dictionary(forKey: key) as? [String: Int]) ?? [:] }
+
+    private func k(_ seriesId: String, _ s: HGStream) -> String { seriesId + "|" + s.url }
+    func score(_ s: HGStream, seriesId: String) -> Int { counts[k(seriesId, s)] ?? 0 }
+    func recordFailure(_ s: HGStream, seriesId: String) {
+        let kk = k(seriesId, s)
+        counts[kk] = min((counts[kk] ?? 0) + 1, 99)
+        store.set(counts, forKey: key)
+    }
+    func clear(_ s: HGStream, seriesId: String) {
+        let kk = k(seriesId, s)
+        if counts.removeValue(forKey: kk) != nil { store.set(counts, forKey: key) }
+    }
+    /// Healthy first; streams whose id is in `tried` are dropped entirely (no retry loops).
+    func ranked(_ streams: [HGStream], seriesId: String, skipping tried: Set<String>) -> [HGStream] {
+        streams.filter { !tried.contains($0.id) }
+               .sorted { score($0, seriesId: seriesId) < score($1, seriesId: seriesId) }
+    }
+}
+
 /// Drives the vertical episode feed: one playback core (AetherEngine by default, AVPlayer as the
 /// fallback — see `PlayerEngine`), per-episode prepared sources, neighbour preloading, resume and
 /// local progress persistence.
@@ -62,6 +90,10 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
     @Published private(set) var verifyTargets: [Int: VerifyTarget] = [:]
     @Published private(set) var streams: [Int: [HGStream]] = [:]
     @Published private(set) var chosen: [Int: HGStream] = [:]
+    /// 本次会话中每条剧集已尝试过且失败的线路 id（自动换线时跳过，避免死循环）。
+    private var triedStreams: [Int: Set<String>] = [:]
+    /// 本集已确认正常播放（进度>2s）的线路，用于去重清除失败记录。
+    private var healthCleared: Set<Int> = []
     @Published var time: Double = 0
     @Published var duration: Double = 0
     /// Furthest playable position buffered by AVPlayer around the playhead (seconds).
@@ -537,6 +569,7 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         prevIndex = current
         current = index
         paused = false
+        healthCleared.remove(index)
         activate(index)
     }
 
@@ -687,8 +720,31 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
             activate(i)
             return
         }
+        // 方案①：同一线路的引擎/通道兜底都用尽后，自动切到下一条未试过的线路。
+        // 方案④：把失败线路记入历史降权，下次不再优先选中。
+        if let failed = chosen[i] {
+            StreamHealth.shared.recordFailure(failed, seriesId: series.id)
+            var tried = triedStreams[i] ?? []
+            tried.insert(failed.id)
+            triedStreams[i] = tried
+            let remaining = StreamHealth.shared.ranked(streams[i] ?? [], seriesId: series.id, skipping: tried)
+            if let next = remaining.first {
+                #if DEBUG
+                NSLog("%@", "[STV] line fallback → next stream: \(failed.id) → \(next.id)")
+                #endif
+                if let tok = prefetchTokens.removeValue(forKey: i) { LocalHLSProxy.shared.release(tok) }
+                aetherFailed.remove(i)   // 换线后允许重新尝试 Aether
+                bypassProxy.remove(i)
+                healthCleared.remove(i)  // 新线路需要重新做健康确认
+                prepared[i] = nil
+                chosen[i] = next
+                activate(i)
+                return
+            }
+        }
         prepared[i] = nil
         chosen[i] = nil
+        triedStreams[i] = nil
         errors[i] = Self.failureText(error)
     }
 
@@ -746,7 +802,9 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
             if stream == nil {
                 let r = try await Catalog.resolve(series, ep)
                 if let e = r.err, r.streams.isEmpty { throw ProviderError.upstream(e) }
-                guard let best = r.streams.first(where: { $0.id == preferredId }) ?? r.streams.first else { throw ProviderError.upstream("没有可用的视频流") }
+                // 方案④：历史失败过的线路排到后面；用户显式偏好的线路仍优先。
+                let ranked = StreamHealth.shared.ranked(r.streams, seriesId: series.id, skipping: self?.triedStreams[i] ?? [])
+                guard let best = ranked.first(where: { $0.id == preferredId }) ?? ranked.first else { throw ProviderError.upstream("没有可用的视频流") }
                 try Task.checkCancellation()
                 self?.streams[i] = r.streams
                 self?.chosen[i] = best
@@ -854,6 +912,8 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         guard chosen[i] != s else { return }
         if let tok = prefetchTokens.removeValue(forKey: i) { LocalHLSProxy.shared.release(tok) }
         tasks.removeValue(forKey: i)?.cancel()
+        triedStreams.removeValue(forKey: i)
+        healthCleared.remove(i)
         chosen[i] = s; prepared[i] = nil
         if current == i { activate(i) }
     }
@@ -1040,6 +1100,11 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         let t = engine.currentTime
         guard t.isFinite else { return }
         time = t
+        // 方案④：进度超过 2s 视为线路健康，清除其历史失败记录（本集只清一次）。
+        if t > 2, let i = readyIndex, !healthCleared.contains(i), let s = chosen[i] {
+            healthCleared.insert(i)
+            StreamHealth.shared.clear(s, seriesId: series.id)
+        }
         let waiting = engine.isWaiting
         if waiting != waitingForMedia { waitingForMedia = waiting }
         let d = engine.duration

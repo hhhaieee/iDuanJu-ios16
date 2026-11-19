@@ -1,8 +1,10 @@
 // 爱看机器人（ikanbot）· 黑果夜剧 idj1 适配插件
 // 主体逻辑来自 guoapp-modules/ikanbot v1.0.4（MIT），原样嵌入；
 // 外层把 guoapp 的 host.* 能力映射到 idj1 沙箱，并把导出函数桥接到 idj1 视频协议。
+// 注意：idj1 沙箱以 ES module 加载插件，要求顶层 export default 一个对象；
+// 这里用 IIFE 隔离内部作用域（避免内部变量遮蔽宿主注入的全局 host），再把它接住导出。
 
-(function () {
+var _plugin = (function () {
   'use strict';
 
   // ---- guoapp host 兼容层 ----
@@ -689,3 +691,5 @@ function resolveMedia(task) {
 
   return { home: home, category: category, search: search, detail: detail, play: play };
 })();
+
+export default _plugin;
