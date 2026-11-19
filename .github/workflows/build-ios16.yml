@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build84 在线仓库上架「帝果」插件"
-          NOTES="build84: ① 在线仓库上架新插件「帝果」（com.idj.dsd-custom，成人向短剧站源，来源 ericto888/guoapp-mod-dsd-custom），支持分类/搜索/详情/播放、主备域名切换与播放签名；② 官方在线仓库默认地址更新到 @v1.0.8，并把历史地址（@main、@v1.0.6、@v1.0.7）统一迁移到当前 tag，升级后在线仓库自动刷新、不重复不丢失；③ 沿用 build83 全部能力（红果画质标签真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build84 在线仓库上架「帝果」+ 商店更名「黑果扩展库」+ 默认地址改 raw 源站"
+          NOTES="build84: ① 在线仓库上架新插件「帝果」（com.idj.dsd-custom，成人向短剧站源，来源 ericto888/guoapp-mod-dsd-custom），支持分类/搜索/详情/播放、主备域名切换与播放签名；② 官方在线仓库更名为「黑果扩展库」；③ 默认商店地址由 jsDelivr 版本 tag 改为 raw 源站 main 分支（https://raw.githubusercontent.com/hhhaieee/idj-plugins/main/index.json），插件上架/更新即时生效、彻底摆脱 CDN 缓存延迟，以后插件增删改不再需要重发 App；④ 历史地址（@main、@v1.0.6、@v1.0.7、@v1.0.8）统一自动迁移到新 raw 地址，升级后自动刷新、不重复不丢失；⑤ 沿用 build83 全部能力（红果画质标签真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

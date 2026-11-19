@@ -97,13 +97,14 @@ final class PluginStore: ObservableObject {
     private var indexURL: URL { PluginPaths.root.appendingPathComponent("index.json") }
     private let d = UserDefaults.standard
     static let subsKey = "stv.plugins.subscriptions"
-    /// 内置默认插件商店（jsDelivr 加速）。用版本 tag 而非 @main 分支，避免分支缓存延迟导致拿不到最新版。用户手动删过之后不再自动加回。
-    static let defaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.8/index.json"
-    /// 历史默认商店地址（@main 分支及旧版本 tag），升级后自动迁移到当前版本化 tag 地址。
+    /// 内置默认扩展库（黑果扩展库）。用 raw 源站 main 分支，保证插件上架/更新即时生效、无 CDN 缓存延迟。用户手动删过之后不再自动加回。
+    static let defaultStoreURL = "https://raw.githubusercontent.com/hhhaieee/idj-plugins/main/index.json"
+    /// 历史默认商店地址（@main 分支及旧版本 tag），升级后自动迁移到当前 raw 源站地址。
     static let legacyDefaultStoreURLs = [
         "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@main/index.json",
         "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.6/index.json",
-        "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.7/index.json"
+        "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.7/index.json",
+        "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.8/index.json"
     ]
     static let defaultStoreRemovedKey = "stv.plugins.defaultStoreRemoved"
 
