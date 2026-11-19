@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build82 修复爱看机器人封面 + 优化插件开关防误触"
-          NOTES="build82: ① 修复爱看机器人封面一直灰色：根因是豆瓣图床 doubanio.com 防盗链（不带 Referer 返回 418/403），插件列表与详情现在返回 coverHeaders（Referer: movie.douban.com），封面正常显示；② 优化「已安装」插件行开关：开关从整行点击区独立出来，扩大为 56x44 大热区，点开关只切换启用/停用、不再误触进入插件详情；③ 在线仓库默认地址更新到 @v1.0.7；④ 沿用 build80 全部能力（版本 tag 免缓存、在线仓库模块、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build83 修复红果画质标签与实际分辨率不一致"
+          NOTES="build83: ① 修复红果画质菜单显示 1080p 而顶部信息条显示 720P 的矛盾：根因是红果接口 definition 字段谎报档位（标 1080 实为 1280x720），画质标签现在以真实分辨率（短边）为准，菜单与顶部统一显示真实清晰度；② 沿用 build82 全部能力（爱看机器人封面 Referer 修复、插件开关防误触、在线仓库版本 tag 免缓存、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

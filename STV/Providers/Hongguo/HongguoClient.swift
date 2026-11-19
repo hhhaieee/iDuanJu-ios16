@@ -977,8 +977,11 @@ actor HongguoClient {
             }
             let w = J.int(meta["vwidth"]) > 0 ? J.int(meta["vwidth"]) : J.int(v["vwidth"])
             let h = J.int(meta["vheight"]) > 0 ? J.int(meta["vheight"]) : J.int(v["vheight"])
-            var height = Int(J.firstNonEmpty(J.str(meta["definition"]), J.str(v["definition"])).lowercased().replacingOccurrences(of: "p", with: "")) ?? 0
-            if height == 0 && w > 0 && h > 0 { height = min(w, h) }
+            // 清晰度标签以真实分辨率（短边）为准：红果接口的 definition 字段存在谎报（如标 1080、实为 1280×720），
+            // 导致画质菜单显示 1080p 而顶部信息条按真实画面显示 720P。仅在拿不到真实分辨率时才回退到 definition / quality_type。
+            let realH = (w > 0 && h > 0) ? min(w, h) : 0
+            let defH = Int(J.firstNonEmpty(J.str(meta["definition"]), J.str(v["definition"])).lowercased().replacingOccurrences(of: "p", with: "")) ?? 0
+            var height = realH > 0 ? realH : defH
             if height == 0 { height = Int((qualityMap[J.int(v["quality_type"])] ?? "").replacingOccurrences(of: "p", with: "")) ?? 0 }
             let am = J.dict(v["audio_meta"])
             let audio = am.isEmpty ? nil : HGStreamAudio(codec: J.firstNonEmpty(J.str(am["codec_type"]), J.str(am["codec"])), profile: J.str(am["profile"]),
