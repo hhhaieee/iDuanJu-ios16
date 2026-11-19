@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build80 在线仓库改用版本tag地址，修复爱看机器人一直显示旧版"
-          NOTES="build80: ① 官方在线仓库默认地址由 jsDelivr @main 分支改为版本 tag（@v1.0.6），彻底解决分支缓存延迟导致的「爱看机器人一直显示 V1.0.5」问题，更新即时生效；② 升级后自动把旧版 @main 订阅迁移到新 tag 地址并立即刷新，不重复、不丢失；③ 沿用 build79 的全部能力（在线仓库模块、恢复备份不丢商店、卸载后商店恢复可安装、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build81 修复爱看机器人封面（豆瓣图床防盗链）"
+          NOTES="build81: ① 修复爱看机器人封面一直灰色：根因是豆瓣图床 doubanio.com 有防盗链，不带豆瓣 Referer 返回 418/403；插件列表与详情现在返回 coverHeaders（Referer: movie.douban.com），封面正常显示；② 在线仓库默认地址跟随版本 tag 更新到 @v1.0.7；③ 沿用 build80 全部能力（版本 tag 免缓存、在线仓库模块、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

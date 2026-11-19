@@ -98,7 +98,7 @@ final class PluginStore: ObservableObject {
     private let d = UserDefaults.standard
     static let subsKey = "stv.plugins.subscriptions"
     /// 内置默认插件商店（jsDelivr 加速）。用版本 tag 而非 @main 分支，避免分支缓存延迟导致拿不到最新版。用户手动删过之后不再自动加回。
-    static let defaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.6/index.json"
+    static let defaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.7/index.json"
     /// 旧版默认商店地址（@main 分支），升级后自动迁移到版本化 tag 地址。
     static let legacyDefaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@main/index.json"
     static let defaultStoreRemovedKey = "stv.plugins.defaultStoreRemoved"
