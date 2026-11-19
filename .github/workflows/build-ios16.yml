@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build83 修复红果画质标签与实际分辨率不一致"
-          NOTES="build83: ① 修复红果画质菜单显示 1080p 而顶部信息条显示 720P 的矛盾：根因是红果接口 definition 字段谎报档位（标 1080 实为 1280x720），画质标签现在以真实分辨率（短边）为准，菜单与顶部统一显示真实清晰度；② 沿用 build82 全部能力（爱看机器人封面 Referer 修复、插件开关防误触、在线仓库版本 tag 免缓存、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build84 在线仓库上架「帝果」插件"
+          NOTES="build84: ① 在线仓库上架新插件「帝果」（com.idj.dsd-custom，成人向短剧站源，来源 ericto888/guoapp-mod-dsd-custom），支持分类/搜索/详情/播放、主备域名切换与播放签名；② 官方在线仓库默认地址更新到 @v1.0.8，并把历史地址（@main、@v1.0.6、@v1.0.7）统一迁移到当前 tag，升级后在线仓库自动刷新、不重复不丢失；③ 沿用 build83 全部能力（红果画质标签真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

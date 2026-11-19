@@ -98,9 +98,13 @@ final class PluginStore: ObservableObject {
     private let d = UserDefaults.standard
     static let subsKey = "stv.plugins.subscriptions"
     /// 内置默认插件商店（jsDelivr 加速）。用版本 tag 而非 @main 分支，避免分支缓存延迟导致拿不到最新版。用户手动删过之后不再自动加回。
-    static let defaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.7/index.json"
-    /// 旧版默认商店地址（@main 分支），升级后自动迁移到版本化 tag 地址。
-    static let legacyDefaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@main/index.json"
+    static let defaultStoreURL = "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.8/index.json"
+    /// 历史默认商店地址（@main 分支及旧版本 tag），升级后自动迁移到当前版本化 tag 地址。
+    static let legacyDefaultStoreURLs = [
+        "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@main/index.json",
+        "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.6/index.json",
+        "https://cdn.jsdelivr.net/gh/hhhaieee/idj-plugins@v1.0.7/index.json"
+    ]
     static let defaultStoreRemovedKey = "stv.plugins.defaultStoreRemoved"
 
     private init() {
@@ -242,11 +246,12 @@ final class PluginStore: ObservableObject {
     /// 用户自定义订阅（不含官方在线仓库）。
     var customSubscriptions: [PluginSubscription] { subscriptions.filter { $0.url != Self.defaultStoreURL } }
 
-    /// 首次进入插件页时自动注入内置插件商店（除非用户已手动删除过），并把旧版 @main 订阅迁移到版本化 tag 地址。
+    /// 首次进入插件页时自动注入内置插件商店（除非用户已手动删除过），并把旧版默认商店订阅迁移到当前版本化 tag 地址。
     func ensureDefaultStore() async {
         guard !d.bool(forKey: Self.defaultStoreRemovedKey) else { return }
-        // 迁移旧默认商店地址（@main → tag），并从新地址立即拉取最新，避免 jsDelivr 分支缓存延迟。
-        if let idx = subscriptions.firstIndex(where: { $0.url == Self.legacyDefaultStoreURL }) {
+        // 迁移旧默认商店地址（@main / 旧 tag → 当前 tag），并从新地址立即拉取最新，避免 jsDelivr 分支缓存延迟。
+        if let legacy = Self.legacyDefaultStoreURLs.first(where: { u in subscriptions.contains(where: { $0.url == u }) }),
+           let idx = subscriptions.firstIndex(where: { $0.url == legacy }) {
             if subscriptions.contains(where: { $0.url == Self.defaultStoreURL }) {
                 subscriptions.remove(at: idx)
             } else {
