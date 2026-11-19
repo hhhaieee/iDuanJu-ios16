@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build81 修复爱看机器人封面（豆瓣图床防盗链）"
-          NOTES="build81: ① 修复爱看机器人封面一直灰色：根因是豆瓣图床 doubanio.com 有防盗链，不带豆瓣 Referer 返回 418/403；插件列表与详情现在返回 coverHeaders（Referer: movie.douban.com），封面正常显示；② 在线仓库默认地址跟随版本 tag 更新到 @v1.0.7；③ 沿用 build80 全部能力（版本 tag 免缓存、在线仓库模块、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build82 修复爱看机器人封面 + 优化插件开关防误触"
+          NOTES="build82: ① 修复爱看机器人封面一直灰色：根因是豆瓣图床 doubanio.com 防盗链（不带 Referer 返回 418/403），插件列表与详情现在返回 coverHeaders（Referer: movie.douban.com），封面正常显示；② 优化「已安装」插件行开关：开关从整行点击区独立出来，扩大为 56x44 大热区，点开关只切换启用/停用、不再误触进入插件详情；③ 在线仓库默认地址更新到 @v1.0.7；④ 沿用 build80 全部能力（版本 tag 免缓存、在线仓库模块、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

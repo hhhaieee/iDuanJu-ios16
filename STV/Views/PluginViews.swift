@@ -32,8 +32,7 @@ struct PluginsView: View {
                             .foregroundStyle(STVTheme.secondary).padding(14).frame(maxWidth: .infinity, alignment: .leading)
                     }
                     ForEach(store.visiblePlugins) { p in
-                        NavigationLink { PluginDetailView(id: p.id) } label: { pluginRow(p) }.buttonStyle(.plain)
-                            .accessibilityIdentifier("plugins.row.\(p.id)")
+                        pluginRow(p).accessibilityIdentifier("plugins.row.\(p.id)")
                         if p.id != store.visiblePlugins.last?.id { Divider().overlay(STVTheme.text.opacity(0.06)).padding(.leading, 48) }
                     }
                 }
@@ -187,22 +186,33 @@ struct PluginsView: View {
     }
 
     private func pluginRow(_ p: InstalledPlugin) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: p.manifest.type == .comic ? "book.closed" : "puzzlepiece.extension").frame(width: 24)
-                .foregroundStyle(p.enabled ? STVTheme.accent : STVTheme.secondary)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(p.manifest.name).foregroundStyle(STVTheme.text)
-                    badge(p.manifest.type.label)
-                    if p.manifest.adult { badge("18+") }
+        HStack(spacing: 4) {
+            NavigationLink { PluginDetailView(id: p.id) } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: p.manifest.type == .comic ? "book.closed" : "puzzlepiece.extension").frame(width: 24)
+                        .foregroundStyle(p.enabled ? STVTheme.accent : STVTheme.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(p.manifest.name).foregroundStyle(STVTheme.text)
+                            badge(p.manifest.type.label)
+                            if p.manifest.adult { badge("18+") }
+                        }
+                        Text(p.disabledReason ?? "v\(p.manifest.version) · \(p.manifest.author.name) · \(p.enabled ? "已启用" : "已停用")")
+                            .font(.caption).foregroundStyle(p.disabledReason == nil ? STVTheme.secondary : STVTheme.accentWarm).lineLimit(1)
+                    }
+                    Spacer()
                 }
-                Text(p.disabledReason ?? "v\(p.manifest.version) · \(p.manifest.author.name) · \(p.enabled ? "已启用" : "已停用")")
-                    .font(.caption).foregroundStyle(p.disabledReason == nil ? STVTheme.secondary : STVTheme.accentWarm).lineLimit(1)
+                .contentShape(Rectangle())
             }
-            Spacer()
+            .buttonStyle(.plain)
             Toggle("", isOn: Binding(get: { p.enabled }, set: { store.setEnabled(p.id, $0) })).labelsHidden()
+                .frame(width: 56, height: 44).contentShape(Rectangle())
                 .accessibilityIdentifier("plugins.toggle.\(p.id)")
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
+            NavigationLink { PluginDetailView(id: p.id) } label: {
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
+                    .frame(width: 24, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }.padding(14).contentShape(Rectangle())
     }
 
