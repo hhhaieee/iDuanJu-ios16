@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - 纯版本号递增（功能同 build 91）"
-          NOTES="v2.0(build 92): 在 build 91 基础上纯版本号递增，代码功能无变更。沿用 build 91 全部能力——「我的」页卡片化（备份与恢复+关于）、数据诊断增强（一键关闭异常源+单源开关+播放调试日记）、移除内置小说阅读模块（源码可从 commit 91c2375 恢复）等。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - 我的页卡片化 + 数据诊断增强 + 移除小说模块"
+          NOTES="v2.0(build 91): ①「我的」页卡片化——底部新增类目(备份与恢复 + 关于)，关于放最底、版本号小字显示；②数据诊断增强——扫描完可在「复制报告」旁一键关闭异常源，每个异常源单独开关(复用片源管理开关，红果内置源标注不可关)；③数据诊断页底部新增「播放调试日记」(汇总崩溃日志+站点事件日志+设备信息，一键复制)；④移除内置小说阅读模块(STV/Novel 书源引擎+阅读器全部移除，小说源码保留在 git commit 91c2375 可恢复)。沿用 v2.0 关于页/检查更新/双 GitHub+Telegram 链接/开源许可，及此前全部能力(跳过详情页直接播放、切集误弹音量图标修复、音量边界提示、在线仓库/raw 源站、红果真实分辨率、移除红果⇄黄果跨源搜索、插件开关防误触、播放自动换线/降权、商店哈希校验)。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
