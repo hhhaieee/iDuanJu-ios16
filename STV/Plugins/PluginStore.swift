@@ -109,7 +109,29 @@ final class PluginStore: ObservableObject {
     static let defaultStoreRemovedKey = "stv.plugins.defaultStoreRemoved"
 
     private init() {
-        if let data = try? Data(contentsOf: indexURL), let list = try? JSONDecoder().decode([InstalledPlugin].self, from: data) { plugins = list }
+        if let data = try? Data(contentsOf: indexURL), var list = try? JSONDecoder().decode([InstalledPlugin].self, from: data) {
+            // 自愈：恢复不完整备份后，index.json 可能残留"有记录但脚本文件缺失/哈希不符"的插件，
+            // 导致插件页虚显"已安装"、加载时才报"脚本文件缺失"。这里不删除记录（保留用户配置），
+            // 而是标记停用并写明原因，插件页会显示"需重装"，用户卸载重装即可恢复。
+            var flagged = 0
+            for i in list.indices {
+                let rec = list[i]
+                let file = PluginPaths.dir(rec.manifest.id).appendingPathComponent(rec.manifest.entry)
+                let script = try? Data(contentsOf: file)
+                let missing = script == nil
+                let badHash: Bool = {
+                    guard let script, let pinned = rec.fileHashes[rec.manifest.entry], !pinned.isEmpty else { return false }
+                    return PluginManifest.fileHash(script) != pinned
+                }()
+                if (missing || badHash) && rec.disabledReason == nil {
+                    list[i].enabled = false
+                    list[i].disabledReason = missing ? "脚本文件缺失，请到插件页卸载后重新安装" : "脚本校验失败，请到插件页卸载后重新安装"
+                    flagged += 1
+                }
+            }
+            plugins = list
+            if flagged > 0, let out = try? JSONEncoder().encode(list) { try? out.write(to: indexURL, options: .atomic) }
+        }
         subscriptions = d.data(forKey: Self.subsKey).flatMap { try? JSONDecoder().decode([PluginSubscription].self, from: $0) } ?? []
         publish()
         #if DEBUG
@@ -170,6 +192,15 @@ final class PluginStore: ObservableObject {
     }
 
     func setEnabled(_ id: String, _ on: Bool) {
+        // 开启前校验脚本文件真实存在，杜绝"已安装却脚本缺失"的虚显状态。
+        if on, let rec = plugin(id) {
+            let file = PluginPaths.dir(rec.manifest.id).appendingPathComponent(rec.manifest.entry)
+            guard (try? Data(contentsOf: file)) != nil else {
+                mutate(id) { $0.disabledReason = "脚本文件缺失，请卸载后重新安装" }
+                PluginLog.add(id, "⛔︎ 无法启用：脚本文件缺失，请卸载后重新安装")
+                return
+            }
+        }
         mutate(id) { $0.enabled = on; if on { $0.failures = 0; $0.disabledReason = nil } }
         PluginRuntime.unload(id)
     }

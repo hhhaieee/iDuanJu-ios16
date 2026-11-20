@@ -32,6 +32,8 @@ enum BackupService {
         var message: String
         var defaultsCount: Int = 0
         var pluginFilesCount: Int = 0
+        /// 恢复后被剔除的"有记录但脚本缺失/损坏"的插件数量。
+        var prunedPlugins: Int = 0
     }
 
     /// 这些 key 不写回：换网络环境后代理配置通常要重设，且属于环境相关而非用户数据。
@@ -146,9 +148,92 @@ enum BackupService {
             if (try? d.write(to: dest, options: .atomic)) != nil { filesCount += 1 }
         }
 
+        // 抢救：旧备份曾把某个插件的文件平铺在插件根目录（main.js / manifest.json 等，
+        // 缺少 <id>/ 子目录）。加载时按 <id>/<entry> 查找，于是"有脚本却报脚本文件缺失"。
+        // 用脚本哈希把平铺文件归位到匹配的插件目录，能救回这类插件。
+        let rehomed = Self.rehomeFlattenedPluginFiles(in: root)
+
+        // 治本：脚本写回后逐条校验安装记录。备份可能不完整（旧备份 / 当时脚本未打进包 /
+        // 相对路径写回失败），导致 index.json 有记录但脚本文件缺失或哈希不符——这正是
+        // "显示已安装却用不了、检测又检测不出来"的根因。这里把这类僵尸记录直接剔除，
+        // 保证恢复后"已安装"列表与磁盘上真实可用的脚本严格一致。
+        let pruned = Self.pruneBrokenPluginRecords(in: root)
+        var msg = "已恢复 \(count) 项数据、\(filesCount) 个插件文件。"
+        if rehomed > 0 {
+            msg += "已自动修复 \(rehomed) 个放错位置的插件。"
+        }
+        if pruned > 0 {
+            msg += "其中 \(pruned) 个插件的脚本在备份中缺失或损坏，已从已安装列表移除（请到插件页重新安装）。"
+        }
+        msg += "请重启 App 让设置生效。"
+
         return RestoreResult(ok: true,
-                             message: "已恢复 \(count) 项数据、\(filesCount) 个插件文件。请重启 App 让设置生效。",
-                             defaultsCount: count, pluginFilesCount: filesCount)
+                             message: msg,
+                             defaultsCount: count, pluginFilesCount: filesCount,
+                             prunedPlugins: pruned)
+    }
+
+    /// 兼容旧备份：把平铺在插件根目录的脚本文件，按哈希匹配归位到对应的 <id>/ 子目录。
+    /// 返回成功归位的插件数。只在检测到"根目录同时有 index.json 和脚本文件"时才动作。
+    private static func rehomeFlattenedPluginFiles(in root: URL) -> Int {
+        let fm = FileManager.default
+        let indexURL = root.appendingPathComponent("index.json")
+        guard let data = try? Data(contentsOf: indexURL),
+              let records = try? JSONDecoder().decode([InstalledPlugin].self, from: data) else { return 0 }
+
+        // 根目录里"疑似被拍平"的插件文件（index.json 是安装记录本身，不算脚本）。
+        let flatNames = ["main.js", "manifest.json", "storage.json", "cookies.plist", "log.txt"]
+        var flat: [String: Data] = [:]
+        for name in flatNames {
+            if let d = try? Data(contentsOf: root.appendingPathComponent(name)) { flat[name] = d }
+        }
+        // 没有任何平铺脚本，说明备份结构正常，无需归位。
+        guard let flatScript = flat["main.js"] else { return 0 }
+
+        // 用哈希找到这份平铺脚本属于哪条安装记录。
+        var matched: InstalledPlugin?
+        for rec in records {
+            if let pinned = rec.fileHashes[rec.manifest.entry], !pinned.isEmpty,
+               PluginManifest.fileHash(flatScript) == pinned {
+                matched = rec
+                break
+            }
+        }
+        guard let rec = matched else { return 0 }
+
+        let dest = PluginPaths.dir(rec.manifest.id)
+        var moved = 0
+        for (name, d) in flat {
+            if (try? d.write(to: dest.appendingPathComponent(name), options: .atomic)) != nil { moved += 1 }
+            try? fm.removeItem(at: root.appendingPathComponent(name))  // 移走，避免残留干扰校验
+        }
+        if moved > 0 {
+            PluginLog.add("__system__", "备份恢复：已将 \(rec.manifest.name) 的 \(moved) 个平铺脚本归位到插件目录")
+        }
+        return moved > 0 ? 1 : 0
+    }
+
+    /// 读取插件目录内的 index.json，剔除"脚本文件缺失或与安装时哈希不符"的记录并写回。
+    /// 返回被剔除的记录数。任何读写失败都按 0 处理，不影响恢复主流程。
+    private static func pruneBrokenPluginRecords(in root: URL) -> Int {
+        let indexURL = root.appendingPathComponent("index.json")
+        guard let data = try? Data(contentsOf: indexURL),
+              var records = try? JSONDecoder().decode([InstalledPlugin].self, from: data) else { return 0 }
+        let before = records.count
+        records.removeAll { rec in
+            let file = PluginPaths.dir(rec.manifest.id).appendingPathComponent(rec.manifest.entry)
+            guard let script = try? Data(contentsOf: file) else { return true }  // 脚本文件缺失
+            if let pinned = rec.fileHashes[rec.manifest.entry], !pinned.isEmpty,
+               PluginManifest.fileHash(script) != pinned {
+                return true  // 哈希不符（备份损坏或被改动）
+            }
+            return false
+        }
+        let removed = before - records.count
+        if removed > 0, let out = try? JSONEncoder().encode(records) {
+            try? out.write(to: indexURL, options: .atomic)
+        }
+        return removed
     }
 }
 

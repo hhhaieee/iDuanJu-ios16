@@ -58,8 +58,11 @@ struct SourceDiagnosticsView: View {
         }
     }
 
-    /// 该源当前是否开启（与「片源管理」的开关状态一致）。
+    /// 该源当前是否开启。插件读插件页开关（PluginStore），采集站读插件页开关（CMSStore），
+    /// 成人内置站/黄果/Telegram 读「片源管理」开关（SourceGate）。
     private func sourceOn(_ s: DramaSource) -> Bool {
+        if let pid = s.pluginID { return PluginStore.snapshot(pid)?.enabled ?? false }
+        if let key = s.cmsKey { return CMSStore.site(key)?.enabled ?? false }
         switch s {
         case .hongguo: return true
         case .huangguo: return gate.showHuangguo
@@ -68,17 +71,23 @@ struct SourceDiagnosticsView: View {
         }
     }
 
-    /// 只有能被「片源管理」开关控制的源才可关闭：黄果、Telegram、成人站/成人插件。
-    /// 红果与非成人内置源（如普通插件源）恒显示，关不掉。
+    /// 除红果（核心内置源，恒开）外全部可关：
+    /// 插件/采集站关的是「插件」页对应开关；成人内置站/黄果/Telegram 关的是「片源管理」18+ 开关。
     private func canToggle(_ s: DramaSource) -> Bool {
-        s == .huangguo || s == .telegram || s.isAdult
+        s != .hongguo
     }
 
     private func setSource(_ s: DramaSource, on: Bool) {
-        switch s {
-        case .huangguo: gate.setHuangguo(on)
-        case .telegram: gate.setAdultChannels(on)
-        default: if s.isAdult { gate.set(s, on: on) }
+        if let pid = s.pluginID {
+            PluginStore.shared.setEnabled(pid, on)
+        } else if let key = s.cmsKey {
+            CMSStore.shared.setEnabled(key, on)
+        } else {
+            switch s {
+            case .huangguo: gate.setHuangguo(on)
+            case .telegram: gate.setAdultChannels(on)
+            default: if s.isAdult { gate.set(s, on: on) }
+            }
         }
         if on { hiddenButShown.remove(s.rawValue) } else { hiddenButShown.insert(s.rawValue) }
     }
@@ -204,7 +213,8 @@ struct SourceDiagnosticsView: View {
                         .foregroundStyle(isOn ? STVTheme.accent : STVTheme.secondary)
                 }
             }.contentShape(Rectangle())
-            // 异常源单独开关（等同「片源管理」开关）；红果是内置源关不掉，仅标注。
+            // 异常源单独开关：插件/采集站关「插件」页开关，成人内置站关「片源管理」18+ 开关；
+            // 红果是核心内置源关不掉，仅标注。
             if r.done && !r.allOK && !running {
                 HStack(spacing: 8) {
                     if canToggle(s) {
@@ -218,7 +228,7 @@ struct SourceDiagnosticsView: View {
                         .toggleStyle(.switch)
                         .tint(STVTheme.accent)
                     } else {
-                        Text("内置源，不可关闭").font(.caption).foregroundStyle(STVTheme.secondary)
+                        Text("核心内置源，不可关闭").font(.caption).foregroundStyle(STVTheme.secondary)
                     }
                 }
                 .padding(.leading, 18)
