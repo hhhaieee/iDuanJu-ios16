@@ -194,7 +194,7 @@ struct NumberedPosterCell: View {
     let rank: Int?
     @Environment(\.zoomNS) private var ns
     var body: some View {
-        NavigationLink(value: Route.series(series)) {
+        NavigationLink(value: Route.openSeries(series)) {
             VStack(alignment: .leading, spacing: 6) {
                 CoverView(url: series.cover, corner: 10)
                     .aspectRatio(series.isLandscapeCover ? 16/10 : 3/4, contentMode: .fit)
@@ -269,7 +269,7 @@ struct TopRankCard: View {
     let rank: Int
     @Environment(\.zoomNS) private var ns
     var body: some View {
-        NavigationLink(value: Route.series(series)) {
+        NavigationLink(value: Route.openSeries(series)) {
             ZStack(alignment: .bottom) {
                 CoverView(url: series.cover, corner: 0)
                 RankStyle.gradient(rank).mask(LinearGradient(colors: [.clear, .black, .black], startPoint: .init(x: 0.5, y: 0.35), endPoint: .bottom))
@@ -292,7 +292,7 @@ struct CompactRankRow: View {
     let series: HGSeries
     let rank: Int
     var body: some View {
-        NavigationLink(value: Route.series(series)) {
+        NavigationLink(value: Route.openSeries(series)) {
             HStack(spacing: 10) {
                 CoverView(url: series.cover, corner: 6)
                     .frame(width: 46, height: 62)
@@ -340,7 +340,7 @@ struct ContinueRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(items.prefix(10)) { p in
-                        NavigationLink(value: Route.series(p.series)) {
+                        NavigationLink(value: Route.openSeries(p.series)) {
                             VStack(alignment: .leading, spacing: 6) {
                                 CoverView(url: p.series.cover, corner: 10)
                                     .frame(width: 112, height: 150)

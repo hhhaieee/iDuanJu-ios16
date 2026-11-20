@@ -86,6 +86,12 @@ enum Route: Hashable {
     case homeSourceOrder
     case diagnostics
     case appearance
+
+    /// 点剧入口统一跳转：开启「跳过详情页直接播放」时直达播放器并从续播进度起播，
+    /// 否则进详情页。`startIndex` 传 nil，由播放器读取观看记录续播。
+    static func openSeries(_ series: HGSeries) -> Route {
+        PlaybackFlowSettings.skipDetail ? .play(series, nil) : .series(series)
+    }
 }
 
 struct ZoomNamespaceKey: EnvironmentKey { static let defaultValue: Namespace.ID? = nil }

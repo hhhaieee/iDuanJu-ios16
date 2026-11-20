@@ -12,6 +12,7 @@ struct SourcesView: View {
     /// 18+ 片源分组默认隐藏，长按「红果短剧」3 秒后显示。
     @State private var adultRevealed = false
     @State private var sleepMinutes = SleepTimerSettings.minutes
+    @State private var skipDetail = PlaybackFlowSettings.skipDetail
 
     var body: some View {
         ScrollView {
@@ -89,6 +90,9 @@ struct SourcesView: View {
                             .accessibilityIdentifier("settings.sleeptimer")
                             .onChange(of: sleepMinutes) { v in SleepTimerSettings.minutes = v }
                         }.padding(14)
+                        Toggle(isOn: Binding(get: { skipDetail }, set: { skipDetail = $0; PlaybackFlowSettings.skipDetail = $0 })) {
+                            label("跳过详情页直接播放", "forward", sub: "开启后，首页/搜索/收藏/历史/相关推荐等点剧入口直接进入播放器，从上次观看进度续播；选集仍在播放器内，关闭则恢复先进入详情页")
+                        }.padding(14).accessibilityIdentifier("settings.skipDetail")
                         actionRow("清空预缓冲缓存（\(ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file))，上限 2GB）", "externaldrive.badge.xmark") {
                             PrefetchStore.shared.clearAll()
                             cacheBytes = PrefetchStore.shared.totalBytes()

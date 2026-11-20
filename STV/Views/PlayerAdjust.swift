@@ -99,6 +99,9 @@ final class PlayerAdjuster: ObservableObject {
                     object: nil,
                     queue: .main
                 ) { [weak self] note in
+                    // 只响应实体音量键（Reason=ExplicitVolumeChange）：切集 / 音频会话切换等系统内部
+                    // 音量变化不弹 HUD。Reason 缺失时放行，避免个别系统不带该字段时误伤按键提示。
+                    if let reason = note.userInfo?["Reason"] as? String, reason != "ExplicitVolumeChange" { return }
                     let seq = note.userInfo?["SequenceNumber"] as? NSNumber
                     let vol = (note.userInfo?["Volume"] as? NSNumber)?.floatValue
                         ?? (note.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? NSNumber)?.floatValue
@@ -115,6 +118,8 @@ final class PlayerAdjuster: ObservableObject {
                     object: nil,
                     queue: .main
                 ) { [weak self] note in
+                    if let reason = note.userInfo?["AVSystemController_AudioVolumeChangeReasonNotificationParameter"] as? String,
+                       reason != "ExplicitVolumeChange" { return }
                     let value = (note.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? NSNumber)?.floatValue
                         ?? AVAudioSession.sharedInstance().outputVolume
                     Task { @MainActor [weak self] in

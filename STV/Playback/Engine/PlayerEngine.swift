@@ -35,6 +35,16 @@ enum SleepTimerSettings {
     }
 }
 
+/// 跳过详情页直接播放（片源管理 → 播放设置）：开启后所有点剧入口直接进入播放器，
+/// 从续播进度起播；播放器内选集面板照常可用。默认关闭。
+enum PlaybackFlowSettings {
+    static let key = "stv.player.skipDetail"
+    static var skipDetail: Bool {
+        get { UserDefaults.standard.bool(forKey: key) }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
 /// 播放器「定时开关」的会话级开关状态：开启后跨剧 / 跨资源保持，直到手动关闭或重启 App。
 /// 只保存在内存（重启即重置），符合「每次重启 App 默认关闭」的预期。
 @MainActor

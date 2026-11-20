@@ -58,7 +58,7 @@ struct LibraryListView: View {
             // Whole row is the hit area, not just the cover / text (long-press used to miss the gaps).
             .contentShape(Rectangle())
             // Hidden link: a NavigationLink directly in a List row adds a disclosure chevron next to the ✕.
-            .background { NavigationLink(value: Route.series(p.series)) { EmptyView() }.opacity(0) }
+            .background { NavigationLink(value: Route.openSeries(p.series)) { EmptyView() }.opacity(0) }
             Button { withAnimation { library.removeProgress(p.series) } } label: {
                 Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(STVTheme.secondary)
                     .frame(width: 36, height: 36).contentShape(Rectangle())

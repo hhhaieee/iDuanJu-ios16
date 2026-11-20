@@ -278,7 +278,7 @@ struct DramaDetailView: View {
                             if on {
                                 relatedPoster(s, current: true, label: SeasonStore.label(s, in: items))
                             } else {
-                                NavigationLink(value: Route.series(s)) {
+                                NavigationLink(value: Route.openSeries(s)) {
                                     relatedPoster(s, current: false, label: SeasonStore.label(s, in: items))
                                 }
                                 .buttonStyle(.plain)

@@ -499,7 +499,7 @@ private struct PosterHero: View {
     var body: some View {
         TabView(selection: $index) {
             ForEach(Array(picks.enumerated()), id: \.element.id) { i, s in
-                NavigationLink(value: Route.series(s)) { page(s, rank: i + 1) }.buttonStyle(.plain).tag(i)
+                NavigationLink(value: Route.openSeries(s)) { page(s, rank: i + 1) }.buttonStyle(.plain).tag(i)
                     .accessibilityIdentifier("home.hero.page.\(i)")
             }
         }
@@ -686,7 +686,7 @@ struct HomeSection: View {
                 let landscape = items.first?.isLandscapeCover ?? false
                 LazyVGrid(columns: Self.columns(landscape: landscape), alignment: .leading, spacing: 16) {
                     ForEach(items) { s in
-                        NavigationLink(value: Route.series(s)) { HomePosterCard(series: s) }.buttonStyle(.plain)
+                        NavigationLink(value: Route.openSeries(s)) { HomePosterCard(series: s) }.buttonStyle(.plain)
                             .accessibilityIdentifier("home.card")
                     }
                 }
