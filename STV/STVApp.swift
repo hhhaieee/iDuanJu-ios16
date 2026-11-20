@@ -171,6 +171,7 @@ struct DebugRouteHost: View {
         case .profile: NavigationStack { ProfileView().routes() }
         case .sources: NavigationStack { SourcesView().routes() }
         case .licenses: NavigationStack { LicensesView().routes() }
+        case .about: NavigationStack { AboutView().routes() }
         case .history: NavigationStack { LibraryListView(kind: .history).routes() }
         case .plugins: NavigationStack { PluginsView().routes() }
         case .siteLog: NavigationStack { SiteLogView().routes() }

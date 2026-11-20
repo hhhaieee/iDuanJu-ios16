@@ -46,7 +46,6 @@ struct ProfileView: View {
                     link("片源管理", "square.stack.3d.down.right", .sources,
                          trailing: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : "红果")
                     link("外观与主题", "paintpalette", .appearance, trailing: appearance.theme.label)
-                    link("开源许可", "doc.text", .licenses)
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
@@ -100,8 +99,11 @@ struct ProfileView: View {
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
-                Text(message ?? "所有数据由本机直连上游，观看记录和收藏只保存在本机。\n\(Self.versionText)")
-                    .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
+                NavigationLink(value: Route.about) {
+                    Text("所有数据由本机直连上游，观看记录和收藏只保存在本机。\n\(Self.versionText)  ›")
+                        .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
+                }
+                .buttonStyle(.plain)
             }.padding(.vertical, 12)
         }
         .background(STVTheme.bg.ignoresSafeArea())
@@ -184,8 +186,7 @@ struct ProfileView: View {
     }
 
     static var versionText: String {
-        let i = Bundle.main.infoDictionary
-        return "黑果夜剧 \(i?["CFBundleShortVersionString"] as? String ?? "") (\(i?["CFBundleVersion"] as? String ?? ""))"
+        "黑果夜剧 \(AppInfo.displayVersion)"
     }
 
     private func link(_ t: String, _ icon: String, _ r: Route, trailing: String? = nil) -> some View {

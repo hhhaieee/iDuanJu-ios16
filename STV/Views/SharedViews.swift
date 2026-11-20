@@ -72,6 +72,7 @@ enum Route: Hashable {
     case history
     case sources
     case licenses
+    case about
     case channels
     case tgManage
     case tgRules
@@ -121,6 +122,7 @@ extension View {
             case .history: LibraryListView(kind: .history)
             case .sources: SourcesView()
             case .licenses: LicensesView()
+            case .about: AboutView()
             case .channels: ChannelFeedView()
             case .tgManage: TGManageView()
             case .tgRules: TGRulesView()

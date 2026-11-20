@@ -135,7 +135,22 @@ struct PluginManifest: Codable, Hashable {
 }
 
 enum AppInfo {
-    static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5" }
+    static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0" }
+    /// 展示用版本号，只取主版本（如 2.0），不显示 build，避免版本号重置后 build 数字造成困惑。
+    static var displayVersion: String {
+        let v = version.split(separator: ".").prefix(2).map(String.init).joined(separator: ".")
+        return v.isEmpty ? version : v
+    }
+    /// 比较 x.y[.z] 形式版本号，返回 1 表示 a 更新、-1 表示 b 更新、0 相等。
+    static func compareVersions(_ a: String, _ b: String) -> Int {
+        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
+        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let l = i < pa.count ? pa[i] : 0, r = i < pb.count ? pb[i] : 0
+            if l != r { return l > r ? 1 : -1 }
+        }
+        return 0
+    }
 }
 
 /// `example.com` (exact host) or `*.example.com` (the domain itself and any subdomain).

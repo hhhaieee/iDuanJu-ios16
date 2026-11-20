@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build89 移除红果/黄果跨源同名搜索，播放不再发多余请求"
-          NOTES="build89: 移除播放源面板的跨源同名搜索——此前打开画质/播放源面板时会自动去另一短剧源(红果⇄黄果)搜同名剧集(查找中…/无同名剧集/备用)，但两源片库不同、不可能有同名资源，属无效请求浪费流量电量。现播放源面板只显示当前源一行，不再发任何跨源搜索请求。沿用 build88 及以下全部能力（跳过详情页直接播放开关、切集误弹音量图标修复、音量边界提示、全屏连播切集菜单栏不自动弹出、在线仓库/黑果扩展库/默认 raw 源站/帝果插件、红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - 2.0 版本：新增「关于」页 + 检查更新，版本号重置为 2.0"
+          NOTES="v2.0: 「我的」页底部版本号改为可点击入口，新增「关于」页——顶部显示 App 图标与版本号(仅主版本 2.0)、检查更新(比对 GitHub 最新 Release，跳转下载)、GitHub 重建版与原作者(my-name-is-alan/iDuanJu)链接、Telegram 交流群与更新频道、开源许可入口；尊重原作者 GPL-3.0 开源贡献。版本号由 1.5.3 重置为 2.0(build 延续 90)，检查更新仅比对主版本号避免历史 build 倒退。沿用此前全部能力（跳过详情页直接播放、切集误弹音量图标修复、音量边界提示、在线仓库/黑果扩展库/raw 源站、红果画质真实分辨率、移除红果⇄黄果跨源同名搜索、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
