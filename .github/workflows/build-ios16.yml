@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build86 修复音量到 0%/100% 后边界按键无提示"
-          NOTES="build86: ① 修复 build85 遗留问题：音量到 0% 或 100% 后继续按同方向实体键不弹指示图（KVO 只在音量值变化时触发，到边界后值不变故不触发）；改为双通道监听——保留 KVO 负责常规变化，新增系统通知 AVSystemController_SystemVolumeDidChangeNotification 捕获每一次物理按键（含边界值不变的情况），HUD 复用同一套视觉、连续按键自动续期；② 沿用 build85 全部能力（物理音量键 KVO 提示、手势调音量双通道互不干扰）及 build84 及以下能力（在线仓库/黑果扩展库/默认 raw 源站/帝果插件、红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build87 音量边界提示真正修复 + 全屏连播切集菜单栏不再自动弹出"
+          NOTES="build87: ① 真正修复音量到 0%/100% 后继续按同方向实体键不弹指示图——build86 用的旧通知名 AVSystemController_SystemVolumeDidChangeNotification 在 iOS 15+ 已改名为 SystemVolumeDidChange，导致边界通知根本收不到；build87 改为新旧通知双通道监听 + SequenceNumber 去重（一次按键回调两次），边界按键现在正常弹 HUD。② 修复全屏观看自动连播切集时控制栏菜单栏自动唤醒打扰观感——切集时记住切换前的控制栏可见状态，沉浸观看中连播保持隐藏，加载期间也不再强制弹栏；手动切集/首载/主动唤出不受影响。③ 沿用 build85 起全部能力（物理音量键 KVO 提示、手势调音量双通道互不干扰）及 build84 及以下能力（在线仓库/黑果扩展库/默认 raw 源站/帝果插件、红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

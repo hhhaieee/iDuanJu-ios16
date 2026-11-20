@@ -40,6 +40,12 @@ struct PlayerScreen: View {
     @State private var loadError: Error?
     @State private var showChrome = true
     @State private var lastInteraction = Date()
+    /// 切集前的控制栏可见状态：自动连播切集时若原本在沉浸观看（控制栏隐藏），切完保持隐藏，
+    /// 不让菜单栏在新集弹出打扰观感；若原本可见则照常显示并走自动隐藏。
+    @State private var chromeVisibleBeforeSwitch = true
+    /// 本次切集是否由「沉浸观看（控制栏隐藏）」发起；加载期间用它屏蔽 readyIndex==nil 的强制显示，
+    /// 否则连播切集时控制栏会在加载瞬间弹出。新集 ready 后清除。
+    @State private var switchingFromHidden = false
     /// 切集/自动连播时抑制中心大播放按钮，直到新集 ready 后用户显式交互；避免切换瞬间按钮闪现。
     /// 仅控制「中心播放/暂停按钮」在新集加载期间是否显示（避免加载中闪现）。
     /// 不再参与控制栏显隐判断——单击/控制栏响应统一由 showChrome 驱动，避免状态残留导致点屏幕无反应。
@@ -296,9 +302,13 @@ struct PlayerScreen: View {
         .onChange(of: co.current) { new in
             scrubbing = false
             if didInitialLoad, new != nil {
-                // 切集 / 自动连播：刷新 chrome 后抑制中心按钮，直到新集 ready 且用户显式交互。
-                flashChrome()
+                // 切集 / 自动连播：记住切集前控制栏状态，切完恢复到该状态。
+                // 沉浸观看（控制栏本就隐藏）时连播切集不再弹出菜单栏打扰观感。
+                chromeVisibleBeforeSwitch = showChrome
+                switchingFromHidden = !showChrome
                 centerSuppressed = true
+                showChrome = chromeVisibleBeforeSwitch
+                lastInteraction = Date()
             } else {
                 // 首载：正常显示中心按钮。
                 didInitialLoad = true
@@ -308,8 +318,10 @@ struct PlayerScreen: View {
         .onChange(of: co.readyIndex) { index in
             guard index != nil else { return }
             if centerSuppressed {
-                // 新集就绪：只重置 auto-hide 计时，不 flash（flash 会清掉 suppressed 导致按钮闪现）。
-                showChrome = true
+                // 新集就绪：恢复到切集前的控制栏状态，不无条件显示。
+                // 若切集前在沉浸观看，这里保持隐藏；否则显示并重置 auto-hide 计时。
+                showChrome = chromeVisibleBeforeSwitch
+                switchingFromHidden = false
                 lastInteraction = Date()
             } else {
                 flashChrome()
@@ -605,7 +617,10 @@ struct PlayerScreen: View {
     }
 
     private var controlsVisible: Bool {
-        !speedMode && (showChrome || co.readyIndex == nil || scrubbing || panel != nil || voiceOver)
+        // readyIndex==nil 通常在加载时显示控制栏；但沉浸观看中连播切集时保持隐藏，
+        // 避免新集加载瞬间菜单栏弹出（由 switchingFromHidden 屏蔽）。
+        let loadingShow = co.readyIndex == nil && !switchingFromHidden
+        return !speedMode && (showChrome || loadingShow || scrubbing || panel != nil || voiceOver)
     }
 
     // MARK: Chrome
@@ -1166,6 +1181,7 @@ struct PlayerScreen: View {
 
     private func flashChrome() {
         centerSuppressed = false
+        switchingFromHidden = false
         showChrome = true
         lastInteraction = Date()
     }

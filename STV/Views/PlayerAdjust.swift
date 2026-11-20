@@ -70,13 +70,15 @@ final class PlayerAdjuster: ObservableObject {
 
     // MARK: - 物理音量键
     // iOS 不提供拦截音量键的公开 API，且 HiddenVolumeView(MPVolumeView) 会抑制系统音量 HUD。
-    // 双通道监听：
-    //  1) KVO 监听系统输出音量 —— 常规调节（值变化）时触发；
-    //  2) 系统通知 AVSystemController_SystemVolumeDidChangeNotification —— 只要物理键按下就触发，
-    //     补 KVO 的盲区：到 0%/100% 后继续按同方向键时 outputVolume 不变、KVO 不触发。
-    // 播放器内的 MPVolumeView 正是收到该通知的前提，无需额外挂载。
+    // 三通道监听，保证到 0%/100% 边界继续按同方向键也弹 HUD：
+    //  1) KVO 监听 outputVolume —— 常规调节（值变化）时触发；
+    //  2) 通知 SystemVolumeDidChange —— iOS 15+ 的按键通知，userInfo["Volume"]，值不变（边界）也触发；
+    //  3) 旧通知 AVSystemController_SystemVolumeDidChangeNotification —— iOS 14- 兼容，userInfo 取音频音量参数。
+    // build86 只监听了旧通知名，iOS 16 上已被改名导致收不到，边界按键不弹——build87 改为新旧都监听。
+    // 播放器内的 MPVolumeView（HiddenVolumeView）是收到这些通知的前提，已挂载。
     private var systemVolumeObservation: NSKeyValueObservation?
-    private var systemVolumeNotificationToken: NSObjectProtocol?
+    private var systemVolumeNotificationTokens: [NSObjectProtocol] = []
+    private var lastVolumeSequence: NSNumber? = nil
 
     func startSystemVolumeObservation() {
         guard systemVolumeObservation == nil else { return }
@@ -88,29 +90,47 @@ final class PlayerAdjuster: ObservableObject {
                 self?.showSystemVolumeHUD(value)
             }
         }
-        // 2) 私有系统通知：边界按键（值不变）也触发。sideload 不上架，无审核风险。
-        if systemVolumeNotificationToken == nil {
-            systemVolumeNotificationToken = NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
-                object: nil,
-                queue: .main
-            ) { [weak self] note in
-                let value = (note.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? Float)
-                    ?? AVAudioSession.sharedInstance().outputVolume
-                Task { @MainActor [weak self] in
-                    self?.showSystemVolumeHUD(Double(value))
+        // 2)+3) 系统通知：边界按键（值不变）也触发。两者都注册，按系统版本各取所需。
+        // 新通知可能非主线程回调、且一次按键回调两次（SequenceNumber 相同）→ 切主线程 + 去重。
+        if systemVolumeNotificationTokens.isEmpty {
+            systemVolumeNotificationTokens = [
+                NotificationCenter.default.addObserver(
+                    forName: NSNotification.Name("SystemVolumeDidChange"),
+                    object: nil,
+                    queue: .main
+                ) { [weak self] note in
+                    let seq = note.userInfo?["SequenceNumber"] as? NSNumber
+                    let vol = (note.userInfo?["Volume"] as? NSNumber)?.floatValue
+                        ?? (note.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? NSNumber)?.floatValue
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        if let seq, seq == self.lastVolumeSequence { return }  // 同一次按键的重复回调
+                        self.lastVolumeSequence = seq
+                        let value = vol.map(Double.init) ?? Double(AVAudioSession.sharedInstance().outputVolume)
+                        self.showSystemVolumeHUD(value)
+                    }
+                },
+                NotificationCenter.default.addObserver(
+                    forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
+                    object: nil,
+                    queue: .main
+                ) { [weak self] note in
+                    let value = (note.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? NSNumber)?.floatValue
+                        ?? AVAudioSession.sharedInstance().outputVolume
+                    Task { @MainActor [weak self] in
+                        self?.showSystemVolumeHUD(Double(value))
+                    }
                 }
-            }
+            ]
         }
     }
 
     func stopSystemVolumeObservation() {
         systemVolumeObservation?.invalidate()
         systemVolumeObservation = nil
-        if let token = systemVolumeNotificationToken {
-            NotificationCenter.default.removeObserver(token)
-            systemVolumeNotificationToken = nil
-        }
+        systemVolumeNotificationTokens.forEach { NotificationCenter.default.removeObserver($0) }
+        systemVolumeNotificationTokens.removeAll()
+        lastVolumeSequence = nil
     }
 
     private func showSystemVolumeHUD(_ value: Double) {
