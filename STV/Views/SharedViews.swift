@@ -86,6 +86,7 @@ enum Route: Hashable {
     case plugins
     case homeSourceOrder
     case diagnostics
+    case playDebugLog
     case appearance
 
     /// 点剧入口统一跳转：开启「跳过详情页直接播放」时直达播放器并从续播进度起播，
@@ -136,6 +137,7 @@ extension View {
             case .plugins: PluginsView()
             case .homeSourceOrder: HomeSourceOrderView()
             case .diagnostics: SourceDiagnosticsView()
+            case .playDebugLog: PlayDebugLogView()
             case .appearance: AppearanceSettingsView()
             }
         }

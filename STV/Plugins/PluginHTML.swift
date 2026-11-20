@@ -112,7 +112,7 @@ enum CSSXPath {
                     if t != "*" { all.insert("self::\(t)", at: 0) }
                     preds.append("not(" + (all.isEmpty ? "false()" : all.map { "(\($0))" }.joined(separator: " and ")) + ")")
                 case "contains": preds.append("contains(string(.), \(literal(unquote(arg))))")
-                // jsoup extras (Legado book sources use them)
+                // jsoup extras
                 case "containsown": preds.append("text()[contains(., \(literal(unquote(arg))))]")
                 case "has":
                     let inner = try one(arg.trimmingCharacters(in: .whitespaces).hasPrefix(">") ? String(arg.trimmingCharacters(in: .whitespaces).dropFirst()) : arg)

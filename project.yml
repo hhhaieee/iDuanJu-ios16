@@ -31,7 +31,7 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.local.STV
       GENERATE_INFOPLIST_FILE: YES
       MARKETING_VERSION: "2.0"
-      CURRENT_PROJECT_VERSION: "90"
+      CURRENT_PROJECT_VERSION: "91"
       SWIFT_EMIT_LOC_STRINGS: YES
       SWIFT_OBJC_BRIDGING_HEADER: STV/Support/STV-Bridging-Header.h
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -50,8 +50,9 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         NSAppTransportSecurity:
-          # 「阅读」书源: many novel sites are http-only. (NSAllowsLocalNetworking must not be set alongside:
-          # iOS then ignores NSAllowsArbitraryLoads. Arbitrary loads already include the local proxy.)
+          # 部分第三方插件/站点为 http-only，需全局允许明文 HTTP。
+          # (NSAllowsLocalNetworking 不能与 NSAllowsArbitraryLoads 同时设置，否则 iOS 忽略后者；
+          #  ArbitraryLoads 已覆盖本地代理。)
           NSAllowsArbitraryLoads: true
         UILaunchScreen: {}
         # 自定义插件文件类型：没有这个声明，系统文件选择器会把 .idjplugin 置灰（"无法打开的类型"）。

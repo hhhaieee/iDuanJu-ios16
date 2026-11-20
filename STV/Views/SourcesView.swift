@@ -235,7 +235,6 @@ struct HomeSourceOrderView: View {
         case .site: "globe"
         case .channels: "paperplane.fill"
         case .manga: "book.fill"
-        case .novel: "text.book.closed.fill"
         }
     }
 }

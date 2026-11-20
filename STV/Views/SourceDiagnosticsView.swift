@@ -36,13 +36,55 @@ struct SourceDiagnosticsView: View {
     @State private var detectTask: Task<Void, Never>?
 
     @ObservedObject private var gate = SourceGate.shared
+    /// 被诊断页关闭、但仍需留在列表里以便重新开启的源。
+    @State private var hiddenButShown: Set<String> = []
 
     /// 只显示当前已开启的片源（红果始终开启；黄果与成人站跟随「片源管理」开关），
-    /// 顺序跟随「片源管理 → 首页片源顺序」；Telegram 频道源跟随「成人 Telegram 频道」开关，开启才显示。
+    /// 顺序跟随「片源管理 → 首页片源顺序」；另外并入被诊断页关闭的源，方便一键重新开启。
     private var sources: [DramaSource] {
         var out = gate.searchSources
         if gate.showAdultChannels, !out.contains(.telegram) { out.append(.telegram) }
+        for raw in hiddenButShown.sorted() {
+            if let s = DramaSource(rawValue: raw), !out.contains(s) { out.append(s) }
+        }
         return out
+    }
+
+    /// 检测有失败步骤的源（诊断完成但非全部通过）。
+    private var failingSources: [DramaSource] {
+        sources.filter { s in
+            let r = results[s.rawValue]
+            return r?.done == true && !(r?.allOK ?? false)
+        }
+    }
+
+    /// 该源当前是否开启（与「片源管理」的开关状态一致）。
+    private func sourceOn(_ s: DramaSource) -> Bool {
+        switch s {
+        case .hongguo: return true
+        case .huangguo: return gate.showHuangguo
+        case .telegram: return gate.showAdultChannels
+        default: return !s.isAdult || gate.enabled.contains(s)
+        }
+    }
+
+    /// 只有能被「片源管理」开关控制的源才可关闭：黄果、Telegram、成人站/成人插件。
+    /// 红果与非成人内置源（如普通插件源）恒显示，关不掉。
+    private func canToggle(_ s: DramaSource) -> Bool {
+        s == .huangguo || s == .telegram || s.isAdult
+    }
+
+    private func setSource(_ s: DramaSource, on: Bool) {
+        switch s {
+        case .huangguo: gate.setHuangguo(on)
+        case .telegram: gate.setAdultChannels(on)
+        default: if s.isAdult { gate.set(s, on: on) }
+        }
+        if on { hiddenButShown.remove(s.rawValue) } else { hiddenButShown.insert(s.rawValue) }
+    }
+
+    private func closeAllFailing() {
+        for s in failingSources where canToggle(s) { setSource(s, on: false) }
     }
 
     var body: some View {
@@ -61,6 +103,23 @@ struct SourceDiagnosticsView: View {
                 }
                 Text("红果为深度检测：会话 → 搜索 → 分页 → 详情 → 播放解析 → 流参数 → 取流吞吐（前 512 KB）→ 榜单，可定位卡在哪一环。\n其他源为标准检测：搜索/列表 → 详情 → 播放解析 → 媒体可达。")
                     .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
+
+                NavigationLink(value: Route.playDebugLog) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.text.magnifyingglass").frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("播放调试日记").foregroundStyle(STVTheme.text)
+                            Text("查看并复制应用运行与播放器的详细事件日志")
+                                .font(.caption).foregroundStyle(STVTheme.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
+                    }
+                    .foregroundStyle(STVTheme.text).padding(14)
+                    .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
             }.padding(.vertical, 12)
         }
         .background(STVTheme.bg.ignoresSafeArea())
@@ -100,6 +159,18 @@ struct SourceDiagnosticsView: View {
                 }
                 .disabled(results.values.allSatisfy { !$0.done })
                 .accessibilityIdentifier("diag.copy")
+                if !running && !failingSources.isEmpty {
+                    Button {
+                        closeAllFailing()
+                    } label: {
+                        Label("关闭异常源", systemImage: "hand.raised.slash")
+                            .font(.subheadline)
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .background(Color.red.opacity(0.16), in: Capsule())
+                            .foregroundStyle(.red)
+                    }
+                    .accessibilityIdentifier("diag.closeFailing")
+                }
                 Spacer(minLength: 0)
                 if !running {
                     Button("全选") { selected = Set(sources.map(\.rawValue)) }
@@ -110,6 +181,10 @@ struct SourceDiagnosticsView: View {
             }
             Text("已选 \(selected.count)/\(sources.count) 个片源 · 点条目可单选/取消")
                 .font(.caption).foregroundStyle(STVTheme.secondary)
+            if !running && !failingSources.isEmpty {
+                Text("发现 \(failingSources.count) 个异常源，可点「关闭异常源」批量关闭，或在下方单独开关")
+                    .font(.caption).foregroundStyle(.orange)
+            }
         }
         .padding(14)
         .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -129,6 +204,27 @@ struct SourceDiagnosticsView: View {
                         .foregroundStyle(isOn ? STVTheme.accent : STVTheme.secondary)
                 }
             }.contentShape(Rectangle())
+            // 异常源单独开关（等同「片源管理」开关）；红果是内置源关不掉，仅标注。
+            if r.done && !r.allOK && !running {
+                HStack(spacing: 8) {
+                    if canToggle(s) {
+                        Toggle(isOn: Binding(
+                            get: { sourceOn(s) },
+                            set: { setSource(s, on: $0) }
+                        )) {
+                            Text(sourceOn(s) ? "已开启 · 点此关闭该源" : "已关闭 · 点此重新开启")
+                                .font(.caption).foregroundStyle(STVTheme.secondary)
+                        }
+                        .toggleStyle(.switch)
+                        .tint(STVTheme.accent)
+                    } else {
+                        Text("内置源，不可关闭").font(.caption).foregroundStyle(STVTheme.secondary)
+                    }
+                }
+                .padding(.leading, 18)
+                .onTapGesture {} // 吞掉点击，避免触发整行的选中切换
+                .accessibilityIdentifier("diag.toggle.\(s.rawValue)")
+            }
             if !r.steps.isEmpty {
                 ForEach(r.steps) { st in
                     HStack(alignment: .top, spacing: 8) {

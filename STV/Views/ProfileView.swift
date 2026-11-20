@@ -50,15 +50,7 @@ struct ProfileView: View {
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
                 VStack(alignment: .leading, spacing: 0) {
-                    link("数据源诊断", "stethoscope", .diagnostics)
-                    Button { showBackup = true } label: {
-                        HStack {
-                            Image(systemName: "archivebox").frame(width: 24)
-                            Text("备份与恢复").foregroundStyle(STVTheme.text)
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
-                        }.padding(14)
-                    }.buttonStyle(.plain).accessibilityIdentifier("profile.backup")
+                    link("数据源诊断", "stethoscope", .diagnostics, sub: "检测片源可用性 · 播放调试日记")
                     HStack {
                         Image(systemName: "network").frame(width: 24)
                         Text("网络代理").foregroundStyle(STVTheme.text)
@@ -99,11 +91,39 @@ struct ProfileView: View {
                 }
                 .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
-                NavigationLink(value: Route.about) {
-                    Text("所有数据由本机直连上游，观看记录和收藏只保存在本机。\n\(Self.versionText)  ›")
-                        .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
+                // 底部新类目：备份与恢复 / 关于（关于在最底下，版本号作为小字）
+                VStack(spacing: 0) {
+                    Button { showBackup = true } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "archivebox").frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("备份与恢复").foregroundStyle(STVTheme.text)
+                                Text("导出备份文件 · 从文件恢复数据")
+                                    .font(.caption).foregroundStyle(STVTheme.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
+                        }.padding(14)
+                    }.buttonStyle(.plain).accessibilityIdentifier("profile.backup")
+                    Divider().background(STVTheme.secondary.opacity(0.2))
+                    NavigationLink(value: Route.about) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "info.circle").frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("关于").foregroundStyle(STVTheme.text)
+                                Text("版本 \(AppInfo.displayVersion)")
+                                    .font(.caption).foregroundStyle(STVTheme.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
+                        }.padding(14)
+                    }.buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 16)
+                Text("所有数据由本机直连上游，观看记录和收藏只保存在本机。")
+                    .font(.caption).foregroundStyle(STVTheme.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center).padding(.horizontal, 16)
             }.padding(.vertical, 12)
         }
         .background(STVTheme.bg.ignoresSafeArea())
@@ -120,7 +140,7 @@ struct ProfileView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("把收藏、观看记录、片源开关、插件、红果设备身份、小说书架等打包备份为 .idjbackup 文件。点「导出备份」后在系统分享面板里选「存储到文件」保存；恢复时点「从文件恢复」直接选择备份文件。")
+                    Text("把收藏、观看记录、片源开关、插件、红果设备身份等打包备份为 .idjbackup 文件。点「导出备份」后在系统分享面板里选「存储到文件」保存；恢复时点「从文件恢复」直接选择备份文件。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
                 }
                 Section {
@@ -189,10 +209,15 @@ struct ProfileView: View {
         "黑果夜剧 \(AppInfo.displayVersion)"
     }
 
-    private func link(_ t: String, _ icon: String, _ r: Route, trailing: String? = nil) -> some View {
+    private func link(_ t: String, _ icon: String, _ r: Route, trailing: String? = nil, sub: String? = nil) -> some View {
         NavigationLink(value: r) {
-            HStack {
-                Image(systemName: icon).frame(width: 24); Text(t); Spacer()
+            HStack(spacing: 12) {
+                Image(systemName: icon).frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t)
+                    if let sub { Text(sub).font(.caption).foregroundStyle(STVTheme.secondary) }
+                }
+                Spacer()
                 if let trailing { Text(trailing).font(.subheadline).foregroundStyle(STVTheme.secondary) }
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary)
             }.foregroundStyle(STVTheme.text).padding(14)

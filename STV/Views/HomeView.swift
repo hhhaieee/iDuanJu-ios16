@@ -36,8 +36,6 @@ enum HomeSource: Hashable, Identifiable {
     case channels
     /// 漫画 (MangaHomeView).
     case manga
-    /// 小说 (NovelHomeView: local TXT / EPUB bookshelf).
-    case novel
     var id: String { sortKey }
     /// 稳定排序键（用户自定义首页片源顺序时持久化用）。
     var sortKey: String {
@@ -48,7 +46,6 @@ enum HomeSource: Hashable, Identifiable {
         case .site(let s): "site." + s.rawValue
         case .channels: "channels"
         case .manga: "manga"
-        case .novel: "novel"
         }
     }
     var label: String {
@@ -59,7 +56,6 @@ enum HomeSource: Hashable, Identifiable {
         case .site(let s): s.label
         case .channels: "频道"
         case .manga: "漫画"
-        case .novel: "小说"
         }
     }
     @MainActor var subs: [HomeTab] {
@@ -68,7 +64,7 @@ enum HomeSource: Hashable, Identifiable {
         case .huangguo: [.huangguo(.video), .huangguo(.legacy)]
         case .ai: SourceGate.shared.showHuangguo ? [.hongguo(.ai), .huangguo(.ai)] : [.hongguo(.ai)]
         case .site(let s): [.site(s)]
-        case .channels, .manga, .novel: []
+        case .channels, .manga: []
         }
     }
     @MainActor static var all: [HomeSource] {
@@ -78,7 +74,7 @@ enum HomeSource: Hashable, Identifiable {
         if g.showHuangguo { base.append(.huangguo) }
         base.append(.ai)
         base.append(contentsOf: g.visibleSites.map { HomeSource.site($0) })
-        base.append(contentsOf: [.channels, .manga, .novel])
+        base.append(contentsOf: [.channels, .manga])
         // 用户自定义顺序（片源管理 → 首页片源顺序）；未排序的项（新开的片源）按默认顺序追加到末尾。
         let order: [String] = HomeSourceOrder.shared.keys
         guard !order.isEmpty else { return base }
@@ -139,7 +135,6 @@ struct HomeView: View {
         if e == "ai" { src = .ai }
         if e == "channels" { src = .channels }
         if e == "manga" { src = .manga }
-        if e == "novel" { src = .novel }
         #endif
         _source = State(initialValue: src)
         _subs = State(initialValue: sub)
@@ -154,8 +149,6 @@ struct HomeView: View {
                         ChannelFeedView(embedded: true).tag(s)
                     } else if s == .manga {
                         MangaHomeView(embedded: true).tag(s)
-                    } else if s == .novel {
-                        NovelHomeView(embedded: true).tag(s)
                     } else {
                         HomeFeedPage(source: s,
                                      tab: Binding(get: { subs[s] ?? s.subs[0] }, set: { subs[s] = $0 }),
