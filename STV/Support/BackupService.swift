@@ -25,6 +25,8 @@ enum BackupService {
         let defaultsPlist: String
         /// 插件目录文件：相对路径 -> base64。
         let pluginFiles: [String: String]
+        /// 导出自检发现的插件问题（脚本缺失/哈希不符）。旧备份无此字段，解码为 nil。
+        let warnings: [String]?
     }
 
     struct RestoreResult {
@@ -62,14 +64,37 @@ enum BackupService {
         var files: [String: String] = [:]
         let root = PluginPaths.root
         if let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) {
-            for case let url as URL in enumerator {
+            while let url = enumerator.nextObject() as? URL {
                 var isDir: ObjCBool = false
                 FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
                 if isDir.boolValue { continue }
                 guard let d = try? Data(contentsOf: url) else { continue }
-                let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
-                let rel = url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.lastPathComponent
+                // 关键修复：用 enumerator 自带的 relativePath 作为相对路径。
+                // 旧实现用 root.path 字符串前缀匹配算相对路径，在 iOS 上 root.path(/var/...) 与
+                // enumerator 枚举出的 url.path(/private/var/...) 前缀不一致，导致全部落到
+                // url.lastPathComponent —— 各插件同名 main.js 互相覆盖，备份里只剩一份平铺脚本。
+                // relativePath 由 FileManager 基于枚举根目录计算，天然正确保留 <id>/ 子目录。
+                let rel = enumerator.relativePath
+                guard !rel.isEmpty else { continue }
                 files[rel] = d.base64EncodedString()
+            }
+        }
+
+        // 导出自检：逐条核对每个已安装插件的脚本是否真实落盘、哈希是否匹配。
+        // 把有问题的插件名写进备份，恢复时明确提示，避免再次产生"名单有、脚本无"的残缺备份。
+        var warnings: [String] = []
+        if let idxData = files["index.json"].flatMap({ Data(base64Encoded: $0) }),
+           let records = try? JSONDecoder().decode([InstalledPlugin].self, from: idxData) {
+            for rec in records {
+                let scriptRel = "\(PluginPaths.safeID(rec.manifest.id))/\(rec.manifest.entry)"
+                guard let scriptData = files[scriptRel].flatMap({ Data(base64Encoded: $0) }) else {
+                    warnings.append("\(rec.manifest.name)（脚本未打进备份）")
+                    continue
+                }
+                if let pinned = rec.fileHashes[rec.manifest.entry], !pinned.isEmpty,
+                   PluginManifest.fileHash(scriptData) != pinned {
+                    warnings.append("\(rec.manifest.name)（脚本校验不符）")
+                }
             }
         }
 
@@ -80,7 +105,8 @@ enum BackupService {
             build: info?["CFBundleVersion"] as? String ?? "",
             createdAt: ISO8601DateFormatter().string(from: Date()),
             defaultsPlist: plist.base64EncodedString(),
-            pluginFiles: files
+            pluginFiles: files,
+            warnings: warnings.isEmpty ? nil : warnings
         )
         return (try? JSONEncoder().encode(payload)) ?? Data()
     }
@@ -164,6 +190,9 @@ enum BackupService {
         }
         if pruned > 0 {
             msg += "其中 \(pruned) 个插件的脚本在备份中缺失或损坏，已从已安装列表移除（请到插件页重新安装）。"
+        }
+        if let warns = payload.warnings, !warns.isEmpty {
+            msg += "备份导出时检测到问题：" + warns.joined(separator: "、") + "。"
         }
         msg += "请重启 App 让设置生效。"
 

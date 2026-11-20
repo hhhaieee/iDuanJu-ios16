@@ -443,9 +443,12 @@ enum PluginPaths {
         try? v.setResourceValues(rv)
         return u
     }
+    /// 插件 id 映射到磁盘目录名时使用的清洗规则（供 dir() 与备份自检共用，保证一致）。
+    static func safeID(_ id: String) -> String {
+        String(id.map { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" ? $0 : "_" })
+    }
     static func dir(_ id: String) -> URL {
-        let safe = String(id.map { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" ? $0 : "_" })
-        let u = root.appendingPathComponent(safe, isDirectory: true)
+        let u = root.appendingPathComponent(safeID(id), isDirectory: true)
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }
