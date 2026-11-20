@@ -70,16 +70,36 @@ final class PlayerAdjuster: ObservableObject {
 
     // MARK: - 物理音量键
     // iOS 不提供拦截音量键的公开 API，且 HiddenVolumeView(MPVolumeView) 会抑制系统音量 HUD。
-    // 因此：KVO 监听系统输出音量，物理键改变它时用自定义 HUD 提示（与手势 HUD 同一套视觉）。
+    // 双通道监听：
+    //  1) KVO 监听系统输出音量 —— 常规调节（值变化）时触发；
+    //  2) 系统通知 AVSystemController_SystemVolumeDidChangeNotification —— 只要物理键按下就触发，
+    //     补 KVO 的盲区：到 0%/100% 后继续按同方向键时 outputVolume 不变、KVO 不触发。
+    // 播放器内的 MPVolumeView 正是收到该通知的前提，无需额外挂载。
     private var systemVolumeObservation: NSKeyValueObservation?
+    private var systemVolumeNotificationToken: NSObjectProtocol?
 
     func startSystemVolumeObservation() {
         guard systemVolumeObservation == nil else { return }
         let session = AVAudioSession.sharedInstance()
+        // 1) KVO：常规音量变化
         systemVolumeObservation = session.observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
             let value = Double(session.outputVolume)
             Task { @MainActor [weak self] in
                 self?.showSystemVolumeHUD(value)
+            }
+        }
+        // 2) 私有系统通知：边界按键（值不变）也触发。sideload 不上架，无审核风险。
+        if systemVolumeNotificationToken == nil {
+            systemVolumeNotificationToken = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                let value = (note.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? Float)
+                    ?? AVAudioSession.sharedInstance().outputVolume
+                Task { @MainActor [weak self] in
+                    self?.showSystemVolumeHUD(Double(value))
+                }
             }
         }
     }
@@ -87,6 +107,10 @@ final class PlayerAdjuster: ObservableObject {
     func stopSystemVolumeObservation() {
         systemVolumeObservation?.invalidate()
         systemVolumeObservation = nil
+        if let token = systemVolumeNotificationToken {
+            NotificationCenter.default.removeObserver(token)
+            systemVolumeNotificationToken = nil
+        }
     }
 
     private func showSystemVolumeHUD(_ value: Double) {

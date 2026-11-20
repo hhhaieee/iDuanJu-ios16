@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build85 修复物理音量键无指示图"
-          NOTES="build85: ① 修复按手机物理音量键有声音变化但不弹音量指示图的问题：KVO 监听系统输出音量，音量键改变时弹出 App 自定义 HUD（原系统 HUD 被隐藏的 MPVolumeView 抑制、自定义 HUD 只响应手势，三者叠加导致按键无提示）；② 手势调音量链路不受影响，两条音量通道互不干扰；③ 沿用 build84 全部能力（在线仓库/黑果扩展库/默认 raw 源站/帝果插件）及 build83 及以下能力（红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build86 修复音量到 0%/100% 后边界按键无提示"
+          NOTES="build86: ① 修复 build85 遗留问题：音量到 0% 或 100% 后继续按同方向实体键不弹指示图（KVO 只在音量值变化时触发，到边界后值不变故不触发）；改为双通道监听——保留 KVO 负责常规变化，新增系统通知 AVSystemController_SystemVolumeDidChangeNotification 捕获每一次物理按键（含边界值不变的情况），HUD 复用同一套视觉、连续按键自动续期；② 沿用 build85 全部能力（物理音量键 KVO 提示、手势调音量双通道互不干扰）及 build84 及以下能力（在线仓库/黑果扩展库/默认 raw 源站/帝果插件、红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
