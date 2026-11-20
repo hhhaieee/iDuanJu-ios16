@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build88 新增跳过详情页直接播放开关 + 修复切集误弹音量图标"
-          NOTES="build88: ① 新增设置项「跳过详情页直接播放」（片源管理→播放设置，定时暂停下方，默认关闭）：开启后首页/搜索/收藏/历史/相关推荐等所有点剧入口直接进入播放器并从上次观看进度续播，选集仍在播放器内；关闭恢复详情页流程。② 修复切集时误弹音量图标——build87 让 SystemVolumeDidChange 通知生效后，切集/音频会话切换等系统内部音量变化也会触发 HUD；build88 加 Reason=ExplicitVolumeChange 来源过滤，只响应实体音量键，边界按键提示不受影响。③ 沿用 build87 全部能力（音量 0%/100% 边界按键提示、全屏连播切集菜单栏不自动弹出、物理音量键 KVO 提示、手势调音量双通道）及 build84 及以下能力（在线仓库/黑果扩展库/默认 raw 源站/帝果插件、红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build89 移除红果/黄果跨源同名搜索，播放不再发多余请求"
+          NOTES="build89: 移除播放源面板的跨源同名搜索——此前打开画质/播放源面板时会自动去另一短剧源(红果⇄黄果)搜同名剧集(查找中…/无同名剧集/备用)，但两源片库不同、不可能有同名资源，属无效请求浪费流量电量。现播放源面板只显示当前源一行，不再发任何跨源搜索请求。沿用 build88 及以下全部能力（跳过详情页直接播放开关、切集误弹音量图标修复、音量边界提示、全屏连播切集菜单栏不自动弹出、在线仓库/黑果扩展库/默认 raw 源站/帝果插件、红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

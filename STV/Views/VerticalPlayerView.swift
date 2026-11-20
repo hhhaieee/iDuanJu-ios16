@@ -54,9 +54,6 @@ struct PlayerScreen: View {
     @State private var didInitialLoad = false
     @State private var scrubbing = false
     @State private var locked = false
-    @State private var altSources: [HGSeries] = []
-    /// nil = not searched yet, false = searching, true = done.
-    @State private var altSearched: Bool?
     @State private var noAutoHide = false
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @State private var panel: PlayerPanel?
@@ -900,7 +897,6 @@ struct PlayerScreen: View {
     private func toggle(_ p: PlayerPanel) {
         withAnimation(.easeOut(duration: 0.18)) { panel = panel == p ? nil : p }
         flashChrome()
-        if p == .quality, altSearched == nil { altSearched = false; Task { await findAltSources(); altSearched = true } }
     }
 
     private func closePanel() {
@@ -1025,32 +1021,11 @@ struct PlayerScreen: View {
         return f.string(from: Date(timeIntervalSince1970: TimeInterval(t)))
     }
 
-    /// 播放源 rows: the current source, plus the same title on the other short-drama source (红果 ⇄ 黄果).
+    /// 播放源 rows: 只显示当前源。红果/黄果是不同片库、无同名资源，不再跨源搜索浪费请求。
     private var sourceRows: [(title: String, detail: String, current: Bool, action: () -> Void)] {
-        // 红果 ⇄ 黄果 only while 黄果 is switched on in 片源管理 (18+).
+        // 保留原有显示门槛：仅黄果，或开启黄果开关后的红果，才显示播放源行
         guard series.source == .huangguo || (series.source == .hongguo && SourceGate.shared.showHuangguo) else { return [] }
-        var rows: [(title: String, detail: String, current: Bool, action: () -> Void)] = [(series.source.label, "当前", true, {})]
-        for s in altSources.prefix(2) {
-            rows.append((s.source.label, "备用", false, { panel = nil; onSwitchSeries(s) }))
-        }
-        if altSources.isEmpty {
-            let other: DramaSource = series.source == .hongguo ? .huangguo : .hongguo
-            rows.append((other.label, altSearched == true ? "无同名剧集" : "查找中…", false, {}))
-        }
-        return rows
-    }
-
-    private func findAltSources() async {
-        let title = co.detail?.title ?? series.title
-        guard !title.isEmpty else { return }
-        func norm(_ s: String) -> String { s.replacingOccurrences(of: " ", with: "").lowercased() }
-        var found: [HGSeries] = []
-        if series.source == .hongguo {
-            if SourceGate.shared.showHuangguo, let r = try? await HuangguoClient.shared.search(title) { found = r.filter { norm($0.title) == norm(title) } }
-        } else if series.source == .huangguo {
-            if let r = try? await HongguoClient.shared.search(title) { found = r.items.filter { norm($0.title) == norm(title) } }
-        }
-        altSources = Array(found.prefix(1))
+        return [(series.source.label, "当前", true, {})]
     }
 
     // MARK: Taps
