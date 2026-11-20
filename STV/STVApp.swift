@@ -102,6 +102,8 @@ enum DebugRoute {
     case root(Int), detail(String), search(String), searchEdit, actorRank, profile
     /// Multi-source hooks: `site:<source>:<id>`, `siteplay:<source>:<id>`, `board:<source>:<categoryId>`, `sources`, `licenses`.
     case site(DramaSource, String, play: Bool), board(DramaSource, String), sources, licenses, siteLog, plugins, history
+    /// 关于页（v2.0）：`STV_ROUTE=about` 模拟器截图钩子。
+    case about
     /// `fxplay:/abs/file.mp4` — player on a local test stream (UI tests for orientation / progress bar).
     case fixturePlay(String)
     /// `tgplay:<channel>/<msgId>/<mediaIndex>` — a public channel video (t.me/s) straight in the player.
@@ -140,6 +142,7 @@ enum DebugRoute {
         // Multi-source hooks are simulator-only: in Release they would bypass 片源管理 (hidden adult sources).
         case "sources": return .sources
         case "licenses": return .licenses
+        case "about": return .about
         case "history": return .history
         case "plugins": return .plugins
         case "sitelog": return .siteLog
