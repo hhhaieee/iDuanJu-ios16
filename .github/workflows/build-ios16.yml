@@ -63,7 +63,7 @@ jobs:
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
           TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - 纯版本号递增（功能同 build 91）"
-NOTES="v2.0(build 92): 在 build 91 基础上纯版本号递增，代码功能无变更。沿用 build 91 全部能力——「我的」页卡片化（备份与恢复+关于）、数据诊断增强（一键关闭异常源+单源开关+播放调试日记）、移除内置小说阅读模块（源码可从 commit 91c2375 恢复）等。"
+          NOTES="v2.0(build 92): 在 build 91 基础上纯版本号递增，代码功能无变更。沿用 build 91 全部能力——「我的」页卡片化（备份与恢复+关于）、数据诊断增强（一键关闭异常源+单源开关+播放调试日记）、移除内置小说阅读模块（源码可从 commit 91c2375 恢复）等。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
