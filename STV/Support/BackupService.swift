@@ -63,19 +63,18 @@ enum BackupService {
 
         var files: [String: String] = [:]
         let root = PluginPaths.root
-        if let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) {
-            while let url = enumerator.nextObject() as? URL {
+        // 关键修复：用 subpaths(atPath:) 直接取得「相对根目录」的路径（系统保证相对路径正确，
+        // 如 com.idj.a123/main.js）。旧实现用 root.path 字符串前缀匹配算相对路径，iOS 上
+        // root.path(/var/...) 与枚举出的 url.path(/private/var/...) 前缀不一致，全部落到
+        // url.lastPathComponent —— 各插件同名 main.js 互相覆盖，备份里只剩一份平铺脚本。
+        // 写回时用 root.appendingPathComponent(rel) 拼回完整 URL，与 root 同源，读写一致。
+        if let subpaths = FileManager.default.subpaths(atPath: root.path) {
+            for rel in subpaths {
+                let fileURL = root.appendingPathComponent(rel)
                 var isDir: ObjCBool = false
-                FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-                if isDir.boolValue { continue }
-                guard let d = try? Data(contentsOf: url) else { continue }
-                // 关键修复：用 enumerator 自带的 relativePath 作为相对路径。
-                // 旧实现用 root.path 字符串前缀匹配算相对路径，在 iOS 上 root.path(/var/...) 与
-                // enumerator 枚举出的 url.path(/private/var/...) 前缀不一致，导致全部落到
-                // url.lastPathComponent —— 各插件同名 main.js 互相覆盖，备份里只剩一份平铺脚本。
-                // relativePath 由 FileManager 基于枚举根目录计算，天然正确保留 <id>/ 子目录。
-                let rel = enumerator.relativePath
-                guard !rel.isEmpty else { continue }
+                guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDir),
+                      !isDir.boolValue else { continue }
+                guard let d = try? Data(contentsOf: fileURL) else { continue }
                 files[rel] = d.base64EncodedString()
             }
         }
