@@ -277,11 +277,14 @@ struct PlayerScreen: View {
             // 竖屏边缘上下滑调音量 → 直接写播放器音量（MPVolumeView 在 iOS16 不生效）。
             adjuster.appVolumeGet = { Double(co.volume) }
             adjuster.appVolumeSet = { v in co.setVolume(Float(v)) }
+            // 物理音量键：KVO 监听系统输出音量，变化时弹自定义 HUD（系统 HUD 被 HiddenVolumeView 抑制）。
+            adjuster.startSystemVolumeObservation()
         }
         .onDisappear {
             sleepTask?.cancel()
             sleepTask = nil
             HomeIndicatorSuppress.set(false)
+            adjuster.stopSystemVolumeObservation()
             adjuster.restoreBrightness()
             OrientationGate.lockPortrait()
             let coordinator = co

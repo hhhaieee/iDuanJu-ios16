@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build84 在线仓库上架「帝果」+ 商店更名「黑果扩展库」+ 默认地址改 raw 源站"
-          NOTES="build84: ① 在线仓库上架新插件「帝果」（com.idj.dsd-custom，成人向短剧站源，来源 ericto888/guoapp-mod-dsd-custom），支持分类/搜索/详情/播放、主备域名切换与播放签名；② 官方在线仓库更名为「黑果扩展库」；③ 默认商店地址由 jsDelivr 版本 tag 改为 raw 源站 main 分支（https://raw.githubusercontent.com/hhhaieee/idj-plugins/main/index.json），插件上架/更新即时生效、彻底摆脱 CDN 缓存延迟，以后插件增删改不再需要重发 App；④ 历史地址（@main、@v1.0.6、@v1.0.7、@v1.0.8）统一自动迁移到新 raw 地址，升级后自动刷新、不重复不丢失；⑤ 沿用 build83 全部能力（红果画质标签真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
+          TITLE="HeiGuoYeJu ${VER} (build ${BUILD}) - build85 修复物理音量键无指示图"
+          NOTES="build85: ① 修复按手机物理音量键有声音变化但不弹音量指示图的问题：KVO 监听系统输出音量，音量键改变时弹出 App 自定义 HUD（原系统 HUD 被隐藏的 MPVolumeView 抑制、自定义 HUD 只响应手势，三者叠加导致按键无提示）；② 手势调音量链路不受影响，两条音量通道互不干扰；③ 沿用 build84 全部能力（在线仓库/黑果扩展库/默认 raw 源站/帝果插件）及 build83 及以下能力（红果画质真实分辨率、爱看机器人封面 Referer、插件开关防误触、播放自动换线/降权、商店哈希校验）。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

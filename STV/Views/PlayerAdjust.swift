@@ -67,6 +67,33 @@ final class PlayerAdjuster: ObservableObject {
         if let b = originalBrightness { UIScreen.main.brightness = b }
         originalBrightness = nil
     }
+
+    // MARK: - 物理音量键
+    // iOS 不提供拦截音量键的公开 API，且 HiddenVolumeView(MPVolumeView) 会抑制系统音量 HUD。
+    // 因此：KVO 监听系统输出音量，物理键改变它时用自定义 HUD 提示（与手势 HUD 同一套视觉）。
+    private var systemVolumeObservation: NSKeyValueObservation?
+
+    func startSystemVolumeObservation() {
+        guard systemVolumeObservation == nil else { return }
+        let session = AVAudioSession.sharedInstance()
+        systemVolumeObservation = session.observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
+            let value = Double(session.outputVolume)
+            Task { @MainActor [weak self] in
+                self?.showSystemVolumeHUD(value)
+            }
+        }
+    }
+
+    func stopSystemVolumeObservation() {
+        systemVolumeObservation?.invalidate()
+        systemVolumeObservation = nil
+    }
+
+    private func showSystemVolumeHUD(_ value: Double) {
+        hideTask?.cancel()
+        hud = (.volume, value)
+        end() // 复用 0.8s 后淡出（连续按键会不断续期，停手后才消失）
+    }
 }
 
 /// Invisible MPVolumeView; hands its UISlider to the adjuster (also suppresses the system volume HUD).
