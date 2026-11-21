@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu 2.0 (build 93) - 备份导出脚本拍平bug修复"
-          NOTES="v2.0(build 93): 修复备份导出功能的关键bug——旧版导出时用路径字符串前缀匹配计算插件脚本相对路径，iOS 上 /var 与 /private/var 前缀不一致导致全部退回文件名，多个插件同名 main.js 互相覆盖，备份里只剩一份平铺脚本，因此装好的插件恢复后仍丢失。现改用系统枚举器相对路径，完整保留每个插件的独立目录；并新增导出自检，哪个插件脚本未打进备份会明确告警，杜绝残缺备份。沿用 build 92 全部能力(诊断开关归属修正、备份恢复归位/剔除、我的页卡片化、数据诊断增强、播放调试日记、移除小说模块等)。"
+          TITLE="HeiGuoYeJu 2.0 (build 94) - 插件 CENC 解密支持"
+          NOTES="v2.0(build 94): 插件系统新增 proxy.drm(cenc-ctr) 支持——插件 play 返回的流现在可以携带 CENC 解密密钥并接入原生解密管线，红果等加密流可通过插件播放。这是 IPA 插件平台化的地基能力。沿用 build 93 全部能力(备份导出脚本拍平bug修复、诊断开关归属修正、备份恢复归位、我的页卡片化、数据诊断增强、播放调试日记等)。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber

@@ -372,11 +372,16 @@ struct JSVideoProvider: SiteProvider {
             let fmt = (st["format"] as? String) ?? (u.contains(".m3u8") ? "hls" : "mp4")
             var h = PluginOut.headers(st["headers"])
             if h["User-Agent"] == nil { h["User-Agent"] = rec.learnedUA ?? PluginHostContext.defaultUA }
-            streams.append(HGStream(streamId: "p\(i)", quality: PluginOut.s(st["name"], max: 40).nonEmptyOr(host), url: u, key: "",
-                                    kind: fmt == "hls" ? .hls : .mp4Clear, headers: h))
+            // idj1 proxy.drm: {type:'cenc-ctr', key} → feed the native CENC AES-CTR decrypt pipeline.
+            let proxy = st["proxy"] as? [String: Any]
+            let drm = proxy?["drm"] as? [String: Any]
+            let cencKey: String = (drm?["type"] as? String) == "cenc-ctr" ? (drm?["key"] as? String ?? "") : ""
+            let kind: MediaKind = cencKey.isEmpty ? (fmt == "hls" ? .hls : .mp4Clear) : .mp4Cenc
+            streams.append(HGStream(streamId: "p\(i)", quality: PluginOut.s(st["name"], max: 40).nonEmptyOr(host), url: u, key: cencKey,
+                                    kind: kind, headers: h))
         }
         guard let first = streams.first else { throw ProviderError.upstream("插件没有返回可播放的地址（需 https 且在 media 白名单内）") }
-        return HGResolvedVideo(vid: ep.vid, url: first.url, key: nil, duration: nil, expiresAt: (o["expiresAt"] as? Int), err: nil, streams: streams)
+        return HGResolvedVideo(vid: ep.vid, url: first.url, key: first.key.isEmpty ? nil : first.key, duration: nil, expiresAt: (o["expiresAt"] as? Int), err: nil, streams: streams)
     }
 }
 
