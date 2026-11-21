@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu 2.0 (build 94) - 插件 CENC 解密支持"
-          NOTES="v2.0(build 94): 插件系统新增 proxy.drm(cenc-ctr) 支持——插件 play 返回的流现在可以携带 CENC 解密密钥并接入原生解密管线，红果等加密流可通过插件播放。这是 IPA 插件平台化的地基能力。沿用 build 93 全部能力(备份导出脚本拍平bug修复、诊断开关归属修正、备份恢复归位、我的页卡片化、数据诊断增强、播放调试日记等)。"
+          TITLE="HeiGuoYeJu 2.0 (build 95) - 红果取流修复"
+          NOTES="v2.0(build 95): 红果取流修复——移植上游 v1.6b18 红果修复：① 签名取流接口偶发 HTTP 200 空包时，先回退到 legacy batch/single 方言再轮换匿名身份；② 签名接口 3 秒超时或空包时，自动兜底到红果网页播放页的明文 MP4 片源。沿用 build 94 全部能力(插件 CENC 解密、build 93 的备份修复、诊断增强、我的页卡片化等)。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
