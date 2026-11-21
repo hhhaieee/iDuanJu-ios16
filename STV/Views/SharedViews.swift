@@ -294,7 +294,7 @@ enum Catalog {
     }
     static func resolve(_ s: HGSeries, _ ep: HGEpisode) async throws -> HGResolvedVideo {
         switch s.source {
-        case .hongguo: return try await HongguoClient.shared.resolve(vid: ep.vid)
+        case .hongguo: return try await HongguoClient.shared.resolve(seriesId: s.seriesId, vid: ep.vid)
         case .huangguo: return try await HuangguoClient.shared.resolve(seriesId: s.seriesId, episode: ep)
         default:
             guard let p = Sites.provider(s.source) else { throw ProviderError.unsupported(s.source.label) }

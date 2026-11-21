@@ -10,6 +10,71 @@ import CommonCrypto
 extension HongguoClient {
     static let resolveTTL: TimeInterval = 180
 
+    private struct SignedResolveTimeout: Error {}
+
+    /// The public Hongguo player page currently exposes a clear MP4 URL in its
+    /// JSON-LD. It is the stable recovery path when the signed App model returns
+    /// HTTP 200 with an empty body.
+    private static let webPlayerOrigin = "https://hongguoduanju.com/player/"
+    private static let webPlayerUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"
+
+    func resolve(seriesId: String, vid: String) async throws -> HGResolvedVideo {
+        if let hit = cachedResolve(vid), hit.note != "web" { return hit }
+        if cachedResolve(vid)?.note == "web" { resolveCache[vid] = nil }
+        do {
+            let signed = try await withThrowingTaskGroup(of: HGResolvedVideo.self) { group in
+                group.addTask { try await self.resolve(vid: vid) }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    throw SignedResolveTimeout()
+                }
+                defer { group.cancelAll() }
+                return try await group.next()!
+            }
+            if !signed.streams.isEmpty { return signed }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            NSLog("[HG] signed resolve unavailable, using web fallback vid=%@ error=%@", vid, String(describing: error))
+        }
+        if let web = try? await resolveWeb(seriesId: seriesId, vid: vid) {
+            resolveCache[vid] = (web, Date())
+            return web
+        }
+        return try await resolve(vid: vid)
+    }
+
+    private func resolveWeb(seriesId: String, vid: String) async throws -> HGResolvedVideo {
+        guard Self.looksSID(seriesId), Self.looksSID(vid) else { throw ProviderError.invalid("红果分集编号") }
+        guard let pageURL = URL(string: Self.webPlayerOrigin + seriesId + "/" + vid) else {
+            throw ProviderError.invalid("红果网页地址")
+        }
+        var request = URLRequest(url: pageURL, timeoutInterval: 12)
+        request.setValue(Self.webPlayerUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        let webSession = URLSession(configuration: .ephemeral)
+        let (data, response) = try await webSession.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw ProviderError.upstream("红果网页取流 HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        }
+        let html = String(decoding: data, as: UTF8.self)
+        let prefix = "https://hongguoduanju.com/video/public/\(vid)/"
+        guard let start = html.range(of: prefix) else { throw ProviderError.upstream("红果网页缺少本集 MP4") }
+        let tail = html[start.lowerBound...]
+        let end = tail.firstIndex(of: "\"") ?? tail.endIndex
+        let rawURL = String(tail[..<end])
+        guard let media = URL(string: rawURL), media.host == "hongguoduanju.com", media.pathExtension.lowercased() == "mp4" else {
+            throw ProviderError.upstream("红果网页片源地址无效")
+        }
+        let filename = media.deletingPathExtension().lastPathComponent
+        let height = Int(filename.dropLast(1))
+        let quality = height.map { "\($0)p" }
+        let stream = HGStream(streamId: "web-\(vid)", quality: quality, url: media.absoluteString, key: "",
+                              height: height, kind: .mp4Clear)
+        return HGResolvedVideo(vid: vid, url: media.absoluteString, key: nil, duration: nil,
+                               expiresAt: nil, err: nil, streams: [stream], note: "web")
+    }
+
     /// Primary entry. Cached / shared in-flight result first, then the unchanged resolve chain.
     func resolve(vid: String) async throws -> HGResolvedVideo {
         if let hit = cachedResolve(vid) { return hit }

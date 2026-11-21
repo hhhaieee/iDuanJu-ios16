@@ -643,6 +643,32 @@ actor HongguoClient {
                     return r
                 }
             } catch is PlayerEmptyBody {
+                // The registered 7.3.9 player dialect can be soft-rejected while the
+                // older batch dialect is still serving the same vid. Keep that path
+                // as a real fallback before throwing away the current identity.
+                for level in [3, 4] {
+                    try Task.checkCancellation()
+                    do {
+                        if let r = try await resolveBatch(vid, level: level) {
+                            if r.err == Self.byteVC2Only && level == 3 { continue }
+                            NSLog("[HG] legacy batch fallback ok level=%d streams=%d", level, r.streams.count)
+                            return r
+                        }
+                    } catch {
+                        NSLog("[HG] legacy batch fallback error level=%d: %@", level, String(describing: error))
+                    }
+                }
+                for level in [3, 4] {
+                    try Task.checkCancellation()
+                    do {
+                        let r = try await resolveSingle(vid, level: level)
+                        if r.err == Self.byteVC2Only && level == 3 { continue }
+                        NSLog("[HG] legacy single fallback ok level=%d streams=%d", level, r.streams.count)
+                        return r
+                    } catch {
+                        NSLog("[HG] legacy single fallback error level=%d: %@", level, String(describing: error))
+                    }
+                }
                 if Self.purePlayerOverride != nil { throw PlayerEmptyBody() }
                 playerRejected.insert(did)
                 if playerIdentity?.deviceId == did { playerIdentity = nil }
