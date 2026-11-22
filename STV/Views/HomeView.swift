@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum HomeTab: Hashable {
     case hongguo(HGRankGenre)
@@ -169,6 +170,8 @@ struct HomeView: View {
         }
         .background(alignment: .top) { atmosphere }
         .background(STVTheme.bg.ignoresSafeArea())
+        // UIKit 层清掉 .page TabView 自带的系统深灰背景（见 PageScrimEraser）。
+        .background(PageScrimEraser())
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showChannels) { channelPanel }
         .onChange(of: SourceGate.shared.visibleSites) { _ in if !HomeSource.all.contains(source) { source = .hongguo } }
@@ -742,4 +745,92 @@ struct BoardListView: View {
         .task { if pager.items.isEmpty { reload() } }
     }
     private func reload() { let b = board; pager.reset { try await b.fetch($0, $1) } }
+}
+
+// MARK: - 首页底部挡板移除（UIKit 层）
+/// iOS 16 的 `.page` TabView 内部是 UIPageViewController，它自身以及内嵌的
+/// UIScrollView 带一条系统深灰背景，盖在 SwiftUI 内容之上——只在首页出现，
+/// 把滚到胶囊后方的封面压暗（搜索页是普通页面，所以是纯黑）。SwiftUI 的
+/// `.background` 位于它下面，盖不住；必须在 UIKit 层把它的背景清成透明，
+/// 让 HomeView 的 STVTheme.bg（纯黑）真正透出来。
+///
+/// 只作用于「首页这一层」翻页容器：通过 `home.page.` accessibilityIdentifier
+/// 识别（HomeFeedPage 自带该标识）。图片查看器 / 漫画等其它 `.page` 页面、
+/// 以及 RootTabView 的玻璃胶囊都不受影响。
+struct PageScrimEraser: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView { EraserView() }
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    final class EraserView: UIView {
+        private var timer: Timer?
+        init() {
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+            // 首帧前后密集补扫：.page 的宿主 view 常在首帧之后才挂载。
+            Self.eraseHomePageScrim(from: self)
+            for d in [0.05, 0.15, 0.4, 0.8, 1.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + d) { [weak self] in
+                    guard let self else { return }
+                    Self.eraseHomePageScrim(from: self)
+                }
+            }
+            let t = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                Self.eraseHomePageScrim(from: self)
+            }
+            RunLoop.main.add(t, forMode: .common)
+            timer = t
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        deinit { timer?.invalidate() }
+
+        /// 从自身爬到 UIWindow，向下遍历整棵视图树，只清首页翻页容器的系统背景。
+        static func eraseHomePageScrim(from start: UIView) {
+            var root: UIView = start
+            while let p = root.superview { root = p }
+            guard root is UIWindow else { return }
+            var queue: [UIView] = [root]
+            while let cur = queue.popLast() {
+                // 命中首页翻页容器：UIPageViewController 的 view，其子树含 home.page.* 标识。
+                if let pageVC = cur.next(as: UIPageViewController.self), Self.containsHomePage(cur) {
+                    Self.clearContainerBackground(pageVC.view)
+                }
+                queue.append(contentsOf: cur.subviews)
+            }
+        }
+
+        /// 清翻页容器的系统背景：深灰可能来自 UIPageViewController.view、内嵌 UIScrollView，
+        /// 或承载每页的 UIHostingController.view。遇到首页内容根（home.page.*）时清它自身
+        /// 但不再下钻，避免碰 SwiftUI 内容内部（海报/渐变/文字）。胶囊在更外层 ZStack，不在本子树。
+        private static func clearContainerBackground(_ view: UIView) {
+            if view.backgroundColor != .clear { view.backgroundColor = .clear }
+            for sub in view.subviews {
+                if let id = sub.accessibilityIdentifier, id.hasPrefix("home.page.") {
+                    if sub.backgroundColor != .clear { sub.backgroundColor = .clear }
+                    continue   // 内容根已到，不下钻 SwiftUI 内容
+                }
+                Self.clearContainerBackground(sub)
+            }
+        }
+
+        /// 该 view 子树里是否有首页 feed 页的标识（精确限定作用范围）。
+        private static func containsHomePage(_ view: UIView) -> Bool {
+            if let id = view.accessibilityIdentifier, id.hasPrefix("home.page.") { return true }
+            for sub in view.subviews where Self.containsHomePage(sub) { return true }
+            return false
+        }
+    }
+}
+
+private extension UIResponder {
+    /// 沿响应链向上找指定类型的对象（UIView -> 宿主 VC -> 父 VC ...）。
+    func next<T: UIResponder>(as type: T.Type) -> T? {
+        var r: UIResponder? = self.next
+        while let cur = r {
+            if let hit = cur as? T { return hit }
+            r = cur.next
+        }
+        return nil
+    }
 }
