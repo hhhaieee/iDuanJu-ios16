@@ -145,23 +145,27 @@ struct HomeView: View {
             header
             TabView(selection: $source) {
                 ForEach(HomeSource.all) { s in
-                    if s == .channels {
-                        ChannelFeedView(embedded: true).tag(s)
-                    } else if s == .manga {
-                        MangaHomeView(embedded: true).tag(s)
-                    } else {
-                        HomeFeedPage(source: s,
-                                     tab: Binding(get: { subs[s] ?? s.subs[0] }, set: { subs[s] = $0 }),
-                                     onHero: { heroCovers[s] = $0 })
-                            .tag(s)
+                    Group {
+                        if s == .channels {
+                            ChannelFeedView(embedded: true)
+                        } else if s == .manga {
+                            MangaHomeView(embedded: true)
+                        } else {
+                            HomeFeedPage(source: s,
+                                         tab: Binding(get: { subs[s] ?? s.subs[0] }, set: { subs[s] = $0 }),
+                                         onHero: { heroCovers[s] = $0 })
+                        }
                     }
+                    .tag(s)
+                    // iOS 16 的 .page TabView（UIPageViewController）自带一条深灰系统背景，
+                    // 它盖在 SwiftUI 底色之上，只在首页出现、把滚到下方的封面压暗（搜索页
+                    // 没有 .page，所以是纯黑）。给每一页的内容铺上不透明页面底色，从
+                    // UIHostingController 层盖住那条系统背景——底部留白随之变纯黑，与
+                    // 搜索页一致。胶囊是 RootTabView 的独立 overlay，完全不受影响。
+                    .background(STVTheme.bg)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            // iOS 16 的 .page TabView 底部有一条系统默认背景（浅色模式下是白色），
-            // 会盖住 STVTheme.bg 透出的底部留白，形成「只在首页出现的底部挡板」。这里
-            // 显式铺上页面底色，把那条系统背景覆盖掉——底部留白区域随之与搜索页一致。
-            .background(STVTheme.bg)
         }
         .background(alignment: .top) { atmosphere }
         .background(STVTheme.bg.ignoresSafeArea())
