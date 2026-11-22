@@ -102,6 +102,7 @@ struct GlassTabBar: View {
             Capsule().strokeBorder(LinearGradient(colors: [STVTheme.text.opacity(0.18), STVTheme.text.opacity(0.05)],
                                                   startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
         }
+        .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
     }
