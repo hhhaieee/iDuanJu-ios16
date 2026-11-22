@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu 2.0 (build 95) - 红果取流修复"
-          NOTES="v2.0(build 95): 红果取流修复——移植上游 v1.6b18 红果修复：① 签名取流接口偶发 HTTP 200 空包时，先回退到 legacy batch/single 方言再轮换匿名身份；② 签名接口 3 秒超时或空包时，自动兜底到红果网页播放页的明文 MP4 片源。沿用 build 94 全部能力(插件 CENC 解密、build 93 的备份修复、诊断增强、我的页卡片化等)。"
+          TITLE="HeiGuoYeJu 2.0 (build 96) - 底部胶囊透明化"
+          NOTES="v2.0(build 96): 底部导航玻璃胶囊去掉那层半透明暗色填充(surface 0.55)，胶囊本身/毛玻璃/边框全部保留——海报封面滚到胶囊后方时不再被压暗。沿用 build 95 全部能力(红果取流修复：签名空包 legacy 兜底 + 网页 MP4 兜底)、build 94 插件 CENC 解密等。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
