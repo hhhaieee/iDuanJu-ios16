@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu 2.0 (build 97) - 底部胶囊蒙层精准移除"
-          NOTES="v2.0(build 97): 精准移除底部玻璃胶囊周围那圈铺开、压暗封面海报的暗色阴影(shadow black 0.18/radius 18)；胶囊自身的毛玻璃/内部填充(surface 0.55)/边框全部完整保留，胶囊本体不动、不是只有边框。修正 build 96 误删内部填充的问题(已补回)。含 build 95 红果取流修复(签名空包 legacy 兜底+网页 MP4 兜底)、build 94 插件 CENC 解密等全部能力。"
+          TITLE="HeiGuoYeJu 2.0 (build 98) - 首页底部挡板移除"
+          NOTES="v2.0(build 98): 移除首页底部压暗封面的深灰挡板——给首页横滑容器每一页的内容铺上不透明页面底色(STVTheme.bg)，盖住 iOS 16 .page TabView 自带的深灰系统背景，底部留白变纯黑、与搜索页一致。底部玻璃胶囊完整保留(毛玻璃/内部填充/边框/阴影四层均不动)。以 build 95 为基线，沿用红果取流修复、build 94 插件 CENC 解密等全部能力。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
