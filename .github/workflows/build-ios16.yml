@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu 2.0 (build 97) - 底部胶囊阴影移除"
-          NOTES="v2.0(build 97): 移除底部玻璃胶囊周围那圈黑色阴影(shadow black 0.18/radius 18)，彻底消除胶囊后方铺开、压暗封面海报的暗色蒙层(glow)。胶囊本身/毛玻璃/边框全部保留，不再是只有边框。含 build 96 移除的内部暗色填充(surface 0.55)、build 95 红果取流修复(签名空包 legacy 兜底+网页 MP4 兜底)、build 94 插件 CENC 解密等全部能力。"
+          TITLE="HeiGuoYeJu 2.0 (build 97) - 底部胶囊蒙层精准移除"
+          NOTES="v2.0(build 97): 精准移除底部玻璃胶囊周围那圈铺开、压暗封面海报的暗色阴影(shadow black 0.18/radius 18)；胶囊自身的毛玻璃/内部填充(surface 0.55)/边框全部完整保留，胶囊本体不动、不是只有边框。修正 build 96 误删内部填充的问题(已补回)。含 build 95 红果取流修复(签名空包 legacy 兜底+网页 MP4 兜底)、build 94 插件 CENC 解密等全部能力。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
