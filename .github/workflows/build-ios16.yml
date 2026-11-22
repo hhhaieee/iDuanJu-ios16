@@ -62,8 +62,8 @@ jobs:
           ASSET="HeiGuoYeJu-${VER}-${BUILD}-unsigned.ipa"
           SRC=$(ls dist/*.ipa | head -n 1)
           cp "$SRC" "dist/$ASSET"
-          TITLE="HeiGuoYeJu 2.0 (build 98) - 首页底部挡板移除"
-          NOTES="v2.0(build 98): 移除首页底部压暗封面的深灰挡板——给首页横滑容器每一页的内容铺上不透明页面底色(STVTheme.bg)，盖住 iOS 16 .page TabView 自带的深灰系统背景，底部留白变纯黑、与搜索页一致。底部玻璃胶囊完整保留(毛玻璃/内部填充/边框/阴影四层均不动)。以 build 95 为基线，沿用红果取流修复、build 94 插件 CENC 解密等全部能力。"
+          TITLE="HeiGuoYeJu 2.0 (build 99) - 首页底部挡板移除(UIKit层)"
+          NOTES="v2.0(build 99): 移除首页底部压暗封面的独立深灰挡板——iOS 16 .page TabView(UIPageViewController)自带系统深灰背景盖在 SwiftUI 之上，build 98 在内容层铺底色盖不住；本版在 UIKit 层精确定位首页翻页容器(home.page.* 标识)并把其系统背景清成透明，让纯黑底色透出，与搜索页一致。不影响图片查看器/漫画等其它 .page 页面。底部玻璃胶囊完整保留(毛玻璃/内部填充/边框/阴影四层均不动)。以 build 95 为基线，沿用红果取流修复、build 94 插件 CENC 解密等全部能力。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "dist/$ASSET" --clobber
