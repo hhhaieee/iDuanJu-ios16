@@ -97,7 +97,6 @@ struct GlassTabBar: View {
         .padding(6)
         .frame(maxWidth: 400)
         .background(.ultraThinMaterial, in: Capsule())
-        .background(STVTheme.surface.opacity(0.55), in: Capsule())
         .overlay {
             Capsule().strokeBorder(LinearGradient(colors: [STVTheme.text.opacity(0.18), STVTheme.text.opacity(0.05)],
                                                   startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
